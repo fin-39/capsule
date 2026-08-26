@@ -1,5 +1,8 @@
 # Capsule
 
+[![CI](https://github.com/fin-39/capsule/actions/workflows/ci.yml/badge.svg)](https://github.com/fin-39/capsule/actions/workflows/ci.yml)
+[![AppImage](https://github.com/fin-39/capsule/actions/workflows/appimage.yml/badge.svg)](https://github.com/fin-39/capsule/actions/workflows/appimage.yml)
+
 Capsule is an experimental Linux launcher for running an untrusted Windows or Linux game/application in its own removable, configurable environment.
 
 The MVP combines a Rust/GTK interface with Sandwine, Bubblewrap, Gamescope, optional Wine and a single sparse ext4 `.capsule` file. Capsule copies a portable Windows or Linux application from a folder or supported archive into that file and chooses its verified launcher. While the application is running, Capsule mounts the image in a private temporary runtime location; when it stops, the mount disappears. Moving that file to Trash removes the application's contained state from Capsule.
