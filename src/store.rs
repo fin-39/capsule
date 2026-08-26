@@ -70,6 +70,15 @@ impl LibraryStore {
     /// is nil or already exists, so records created by importers cannot collide.
     pub fn create(&self, mut capsule: CapsuleRecord) -> Result<CapsuleRecord, StoreError> {
         self.mutate(true, |library| {
+            if let Some(path) = capsule.storage.image_path()
+                && library
+                    .capsules
+                    .iter()
+                    .filter_map(|existing| existing.storage.image_path())
+                    .any(|existing| existing == path)
+            {
+                return Err(StoreError::DuplicateImage(path.to_path_buf()));
+            }
             while capsule.id.is_nil() || library.get(capsule.id).is_some() {
                 capsule.id = Uuid::new_v4();
             }
@@ -266,6 +275,8 @@ pub enum StoreError {
     },
     #[error("capsule was not found: {0}")]
     NotFound(Uuid),
+    #[error("capsule image is already registered: {0}")]
+    DuplicateImage(PathBuf),
     #[error(transparent)]
     InvalidModel(#[from] ModelError),
 }
@@ -327,6 +338,27 @@ mod tests {
         let second = store.create(second).unwrap();
         assert_ne!(first.id, second.id);
         assert_eq!(store.list().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn create_rejects_an_image_already_registered_under_another_name() {
+        let directory = tempdir().unwrap();
+        let store = LibraryStore::new(directory.path().join("library.json"));
+        let first = store.create(record(directory.path(), "One")).unwrap();
+        let duplicate = CapsuleRecord::new(
+            "Another name",
+            StorageKind::ExternalImage {
+                path: first.storage.path().to_path_buf(),
+            },
+            "drive_c/game.exe",
+            RunnerKind::Wine,
+        );
+
+        assert!(matches!(
+            store.create(duplicate),
+            Err(StoreError::DuplicateImage(_))
+        ));
+        assert_eq!(store.list().unwrap(), vec![first]);
     }
 
     #[test]

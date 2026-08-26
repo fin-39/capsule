@@ -175,6 +175,27 @@ struct PortableSelection {
     archive_password: Option<backend::portable::ArchivePassword>,
 }
 
+#[derive(Clone)]
+struct ExistingSelection {
+    image_path: PathBuf,
+    inspection: backend::portable::PortableInspection,
+}
+
+#[derive(Clone)]
+enum AddSelection {
+    Portable(PortableSelection),
+    Existing(ExistingSelection),
+}
+
+impl AddSelection {
+    fn inspection(&self) -> &backend::portable::PortableInspection {
+        match self {
+            Self::Portable(selection) => &selection.inspection,
+            Self::Existing(selection) => &selection.inspection,
+        }
+    }
+}
+
 impl UiState {
     fn refresh(self: &Rc<Self>) {
         let library_visible = matches!(
@@ -306,7 +327,11 @@ impl UiState {
             .build();
         let remove = gtk::Button::builder()
             .icon_name("user-trash-symbolic")
-            .tooltip_text("Move to Trash")
+            .tooltip_text(if record.storage.is_managed_image() {
+                "Move to Trash"
+            } else {
+                "Remove from Library"
+            })
             .sensitive(!busy)
             .build();
 
@@ -416,23 +441,26 @@ impl UiState {
         let source_group = adw::PreferencesGroup::builder()
             .title("Source")
             .description(
-                "Choose a folder or archive. Multipart 7z, ZIP, and RAR sets are supported.",
+                "Import a folder or archive, or register an existing .capsule file in place.",
             )
             .build();
         let name_row = adw::EntryRow::builder().title("Name").build();
 
         let source_row = adw::ActionRow::builder()
-            .title("Game files")
-            .subtitle("Choose a folder or archive")
+            .title("Game or capsule")
+            .subtitle("Choose a folder, archive, or existing capsule")
             .subtitle_lines(3)
             .build();
         let choose_folder = gtk::Button::with_label("Folder…");
         let choose_archive = gtk::Button::with_label("Archive…");
+        let choose_existing = gtk::Button::with_label("Capsule…");
         choose_folder.set_valign(Align::Center);
         choose_archive.set_valign(Align::Center);
+        choose_existing.set_valign(Align::Center);
         let source_buttons = gtk::Box::new(Orientation::Horizontal, 6);
         source_buttons.append(&choose_folder);
         source_buttons.append(&choose_archive);
+        source_buttons.append(&choose_existing);
         source_row.add_suffix(&source_buttons);
         source_group.add(&source_row);
         let password_row = adw::PasswordEntryRow::builder()
@@ -526,7 +554,7 @@ impl UiState {
         body.append(&footer);
         self.show_form(&body, "Add to Library", "Game or app");
 
-        let selection: Rc<RefCell<Option<PortableSelection>>> = Rc::new(RefCell::new(None));
+        let selection: Rc<RefCell<Option<AddSelection>>> = Rc::new(RefCell::new(None));
         let automatic_name: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         let pending_archive: Rc<RefCell<Option<backend::portable::PortableSource>>> =
             Rc::new(RefCell::new(None));
@@ -540,6 +568,7 @@ impl UiState {
             let executable_names = executable_names.clone();
             let choose_folder_button = choose_folder.clone();
             let choose_archive_button = choose_archive.clone();
+            let choose_existing_button = choose_existing.clone();
             let create = create.clone();
             let password_row = password_row.clone();
             let inspect_password = inspect_password.clone();
@@ -557,6 +586,7 @@ impl UiState {
                 let executable_names = executable_names.clone();
                 let choose_folder = choose_folder_button.clone();
                 let choose_archive = choose_archive_button.clone();
+                let choose_existing = choose_existing_button.clone();
                 let create = create.clone();
                 let password_row = password_row.clone();
                 let inspect_password = inspect_password.clone();
@@ -578,6 +608,7 @@ impl UiState {
                                 &executable_names,
                                 &choose_folder,
                                 &choose_archive,
+                                &choose_existing,
                                 &create,
                                 &password_row,
                                 &inspect_password,
@@ -599,6 +630,7 @@ impl UiState {
             let executable_names = executable_names.clone();
             let choose_folder_button = choose_folder.clone();
             let choose_archive_button = choose_archive.clone();
+            let choose_existing_button = choose_existing.clone();
             let create = create.clone();
             let password_row = password_row.clone();
             let inspect_password = inspect_password.clone();
@@ -648,6 +680,7 @@ impl UiState {
                 let executable_names = executable_names.clone();
                 let choose_folder = choose_folder_button.clone();
                 let choose_archive = choose_archive_button.clone();
+                let choose_existing = choose_existing_button.clone();
                 let create = create.clone();
                 let password_row = password_row.clone();
                 let inspect_password = inspect_password.clone();
@@ -666,11 +699,76 @@ impl UiState {
                             &executable_names,
                             &choose_folder,
                             &choose_archive,
+                            &choose_existing,
                             &create,
                             &password_row,
                             &inspect_password,
                             &pending_archive,
                             None,
+                        );
+                    }
+                });
+            });
+        }
+        {
+            let window = self.window.clone();
+            let selection = Rc::clone(&selection);
+            let automatic_name = Rc::clone(&automatic_name);
+            let source_row = source_row.clone();
+            let name_row = name_row.clone();
+            let executable_row = executable_row.clone();
+            let executable_names = executable_names.clone();
+            let choose_folder_button = choose_folder.clone();
+            let choose_archive_button = choose_archive.clone();
+            let choose_existing_button = choose_existing.clone();
+            let create = create.clone();
+            let password_row = password_row.clone();
+            let inspect_password = inspect_password.clone();
+            let pending_archive = Rc::clone(&pending_archive);
+            choose_existing.connect_clicked(move |_| {
+                let capsule_filter = gtk::FileFilter::new();
+                capsule_filter.set_name(Some("Capsule images"));
+                capsule_filter.add_pattern("*.capsule");
+                let filters = gio::ListStore::new::<gtk::FileFilter>();
+                filters.append(&capsule_filter);
+                let file_dialog = gtk::FileDialog::builder()
+                    .title("Choose an existing capsule")
+                    .modal(true)
+                    .filters(&filters)
+                    .default_filter(&capsule_filter)
+                    .build();
+                let selection = Rc::clone(&selection);
+                let automatic_name = Rc::clone(&automatic_name);
+                let source_row = source_row.clone();
+                let name_row = name_row.clone();
+                let executable_row = executable_row.clone();
+                let executable_names = executable_names.clone();
+                let choose_folder = choose_folder_button.clone();
+                let choose_archive = choose_archive_button.clone();
+                let choose_existing = choose_existing_button.clone();
+                let create = create.clone();
+                let password_row = password_row.clone();
+                let inspect_password = inspect_password.clone();
+                let pending_archive = Rc::clone(&pending_archive);
+                file_dialog.open(Some(&window), None::<&gio::Cancellable>, move |result| {
+                    if let Ok(file) = result
+                        && let Some(path) = file.path()
+                    {
+                        begin_existing_capsule_inspection(
+                            path,
+                            &selection,
+                            &automatic_name,
+                            &source_row,
+                            &name_row,
+                            &executable_row,
+                            &executable_names,
+                            &choose_folder,
+                            &choose_archive,
+                            &choose_existing,
+                            &create,
+                            &password_row,
+                            &inspect_password,
+                            &pending_archive,
                         );
                     }
                 });
@@ -685,6 +783,7 @@ impl UiState {
             let executable_names = executable_names.clone();
             let choose_folder = choose_folder.clone();
             let choose_archive = choose_archive.clone();
+            let choose_existing = choose_existing.clone();
             let create = create.clone();
             let password_row = password_row.clone();
             let inspect_password_button = inspect_password.clone();
@@ -709,6 +808,7 @@ impl UiState {
                     &executable_names,
                     &choose_folder,
                     &choose_archive,
+                    &choose_existing,
                     &create,
                     &password_row,
                     &inspect_password_button,
@@ -730,11 +830,11 @@ impl UiState {
             create.connect_clicked(move |_| {
                 let name = name_row.text().trim().to_owned();
                 let Some(selection) = selection.borrow().clone() else {
-                    state.toast("Choose a game folder or archive first");
+                    state.toast("Choose a game folder, archive, or capsule first");
                     return;
                 };
                 let Some((entrypoint, runner)) = selection
-                    .inspection
+                    .inspection()
                     .candidate(executable_row.selected() as usize)
                     .map(|(path, runner)| (path.to_path_buf(), runner))
                 else {
@@ -746,8 +846,13 @@ impl UiState {
                     return;
                 }
 
-                let storage = StorageKind::Image {
-                    path: state.paths.capsule_path(&name),
+                let storage = match &selection {
+                    AddSelection::Portable(_) => StorageKind::Image {
+                        path: state.paths.capsule_path(&name),
+                    },
+                    AddSelection::Existing(existing) => StorageKind::ExternalImage {
+                        path: existing.image_path.clone(),
+                    },
                 };
 
                 let mut record = CapsuleRecord::new(name, storage, entrypoint.clone(), runner);
@@ -757,10 +862,9 @@ impl UiState {
                     microphone_row.is_active(),
                 );
 
-                let StorageKind::Image { path: image_path } = &record.storage else {
-                    unreachable!();
-                };
-                if image_path.exists() {
+                if let StorageKind::Image { path } = &record.storage
+                    && path.exists()
+                {
                     state.toast("A capsule with that file name already exists");
                     return;
                 }
@@ -768,50 +872,83 @@ impl UiState {
                     state.toast("XDG_RUNTIME_DIR is unavailable; import was blocked");
                     return;
                 };
-                let image_size_mib = backend::portable::recommended_image_size_mib(
-                    selection.inspection.uncompressed_bytes,
-                );
                 page.set_sensitive(false);
                 create_button.set_sensitive(false);
-                create_button.set_label("Creating…");
+                create_button.set_label(if matches!(&selection, AddSelection::Portable(_)) {
+                    "Creating…"
+                } else {
+                    "Checking…"
+                });
                 cancel_button.set_sensitive(false);
                 state.back_button.set_sensitive(false);
                 state.window.set_deletable(false);
-                let request = backend::portable::PortableImportRequest {
-                    id: record.id,
-                    name: record.name.clone(),
-                    source: selection.source,
-                    archive_password: selection.archive_password,
-                    image_path: image_path.clone(),
-                    image_size_mib,
-                    runtime_root,
-                    limits: backend::portable::ImportLimits::default(),
-                };
                 let capabilities = backend::capabilities::Capabilities::detect();
                 let (sender, receiver) = std::sync::mpsc::channel();
                 let selected_entrypoint = entrypoint.clone();
                 let selected_runner = runner;
-                std::thread::spawn(move || {
-                    let result = backend::portable::import_portable_game(&request, &capabilities)
-                        .map_err(|error| error.to_string())
-                        .and_then(|result| {
-                            if result
-                                .inspection
-                                .executable_candidates
-                                .iter()
-                                .zip(&result.inspection.candidate_runners)
-                                .any(|(path, runner)| {
-                                    path == &selected_entrypoint && *runner == selected_runner
-                                })
-                            {
-                                Ok(())
-                            } else {
-                                let _ = std::fs::remove_file(&request.image_path);
-                                Err("The selected executable changed during import".into())
-                            }
+                match selection {
+                    AddSelection::Portable(selection) => {
+                        let StorageKind::Image { path: image_path } = &record.storage else {
+                            unreachable!();
+                        };
+                        let request = backend::portable::PortableImportRequest {
+                            id: record.id,
+                            name: record.name.clone(),
+                            source: selection.source,
+                            archive_password: selection.archive_password,
+                            image_path: image_path.clone(),
+                            image_size_mib: backend::portable::recommended_image_size_mib(
+                                selection.inspection.uncompressed_bytes,
+                            ),
+                            runtime_root,
+                            limits: backend::portable::ImportLimits::default(),
+                        };
+                        std::thread::spawn(move || {
+                            let result =
+                                backend::portable::import_portable_game(&request, &capabilities)
+                                    .map_err(|error| error.to_string())
+                                    .and_then(|result| {
+                                        if inspection_contains_candidate(
+                                            &result.inspection,
+                                            &selected_entrypoint,
+                                            selected_runner,
+                                        ) {
+                                            Ok(())
+                                        } else {
+                                            let _ = std::fs::remove_file(&request.image_path);
+                                            Err("The selected executable changed during import"
+                                                .into())
+                                        }
+                                    });
+                            let _ = sender.send(result);
                         });
-                    let _ = sender.send(result);
-                });
+                    }
+                    AddSelection::Existing(selection) => {
+                        std::thread::spawn(move || {
+                            let result = backend::existing::inspect_existing_capsule(
+                                &selection.image_path,
+                                &runtime_root,
+                                &backend::portable::ImportLimits::default(),
+                                &capabilities,
+                            )
+                            .map_err(|error| error.to_string())
+                            .and_then(|result| {
+                                if result.image_path == selection.image_path
+                                    && inspection_contains_candidate(
+                                        &result.inspection,
+                                        &selected_entrypoint,
+                                        selected_runner,
+                                    )
+                                {
+                                    Ok(())
+                                } else {
+                                    Err("The selected capsule changed during inspection".into())
+                                }
+                            });
+                            let _ = sender.send(result);
+                        });
+                    }
+                }
 
                 let state = Rc::clone(&state);
                 let page = page.clone();
@@ -1472,9 +1609,11 @@ impl UiState {
         else {
             return;
         };
-        let is_image = record.storage.is_image();
-        let body = if is_image {
+        let deletes_file = record.storage.is_managed_image();
+        let body = if deletes_file {
             "The capsule file will be moved to Trash. This removes the contained game, Wine prefix, saves and capsule-specific caches."
+        } else if record.storage.is_image() {
+            "This existing capsule will be removed from the library. Its file and contained data will stay in their current location."
         } else {
             "This development entry will be removed from the library. Its source directory will not be deleted."
         };
@@ -1483,7 +1622,7 @@ impl UiState {
             ("cancel", "Cancel"),
             (
                 "remove",
-                if is_image {
+                if deletes_file {
                     "Move to Trash"
                 } else {
                     "Unregister"
@@ -1511,7 +1650,7 @@ impl UiState {
         else {
             return;
         };
-        let _image_lock = if let StorageKind::Image { path } = &record.storage {
+        let _image_lock = if let Some(path) = record.storage.image_path() {
             let locked_file = match OpenOptions::new().read(true).write(true).open(path) {
                 Ok(file) => file,
                 Err(error) => {
@@ -1523,10 +1662,12 @@ impl UiState {
                 self.toast("Capsule is running; exit it before removal");
                 return;
             }
-            let trash_file = gio::File::for_path(path);
-            if let Err(error) = trash_file.trash(None::<&gio::Cancellable>) {
-                self.toast(&format!("Could not move capsule to Trash: {error}"));
-                return;
+            if record.storage.is_managed_image() {
+                let trash_file = gio::File::for_path(path);
+                if let Err(error) = trash_file.trash(None::<&gio::Cancellable>) {
+                    self.toast(&format!("Could not move capsule to Trash: {error}"));
+                    return;
+                }
             }
             Some(locked_file)
         } else {
@@ -1546,10 +1687,10 @@ impl UiState {
                     eprintln!("Could not remove legacy cached Capsule icon: {error}");
                 }
                 self.refresh();
-                self.toast(if record.storage.is_image() {
+                self.toast(if record.storage.is_managed_image() {
                     "Capsule moved to Trash"
                 } else {
-                    "Development entry unregistered"
+                    "Capsule unregistered"
                 });
             }
             Err(error) => self.toast(&format!("Could not update library: {error}")),
@@ -1667,7 +1808,7 @@ fn focus_new_niri_gamescope_window(previous: Option<HashSet<u64>>, expected_titl
 }
 
 fn capsule_image_is_locked(record: &CapsuleRecord) -> bool {
-    let StorageKind::Image { path } = &record.storage else {
+    let Some(path) = record.storage.image_path() else {
         return false;
     };
     let Ok(file) = OpenOptions::new().read(true).write(true).open(path) else {
@@ -1743,7 +1884,7 @@ fn empty_page() -> gtk::Widget {
     let page = adw::StatusPage::builder()
         .icon_name("applications-games-symbolic")
         .title("Your library is empty")
-        .description("Add a Windows game or app from a folder or archive.")
+        .description("Add a game or app from a folder, archive, or existing capsule.")
         .build();
     page.upcast()
 }
@@ -1776,7 +1917,7 @@ fn access_summary(record: &CapsuleRecord) -> String {
 #[allow(clippy::too_many_arguments)]
 fn begin_portable_inspection(
     source: backend::portable::PortableSource,
-    selection: &Rc<RefCell<Option<PortableSelection>>>,
+    selection: &Rc<RefCell<Option<AddSelection>>>,
     automatic_name: &Rc<RefCell<Option<String>>>,
     source_row: &adw::ActionRow,
     name_row: &adw::EntryRow,
@@ -1784,6 +1925,7 @@ fn begin_portable_inspection(
     executable_names: &gtk::StringList,
     choose_folder: &gtk::Button,
     choose_archive: &gtk::Button,
+    choose_existing: &gtk::Button,
     create: &gtk::Button,
     password_row: &adw::PasswordEntryRow,
     inspect_password: &gtk::Button,
@@ -1796,6 +1938,7 @@ fn begin_portable_inspection(
     create.set_sensitive(false);
     choose_folder.set_sensitive(false);
     choose_archive.set_sensitive(false);
+    choose_existing.set_sensitive(false);
     inspect_password.set_sensitive(false);
     if matches!(source, backend::portable::PortableSource::Archive(_)) {
         *pending_archive.borrow_mut() = Some(source.clone());
@@ -1828,6 +1971,7 @@ fn begin_portable_inspection(
     let executable_names = executable_names.clone();
     let choose_folder = choose_folder.clone();
     let choose_archive = choose_archive.clone();
+    let choose_existing = choose_existing.clone();
     let create = create.clone();
     let password_row = password_row.clone();
     let inspect_password = inspect_password.clone();
@@ -1874,14 +2018,15 @@ fn begin_portable_inspection(
                 ));
                 password_row.set_visible(archive_password.is_some());
                 inspect_password.set_sensitive(archive_password.is_some());
-                *selection.borrow_mut() = Some(PortableSelection {
+                *selection.borrow_mut() = Some(AddSelection::Portable(PortableSelection {
                     source,
                     inspection,
                     archive_password,
-                });
+                }));
                 create.set_sensitive(true);
                 choose_folder.set_sensitive(true);
                 choose_archive.set_sensitive(true);
+                choose_existing.set_sensitive(true);
                 gtk::glib::ControlFlow::Break
             }
             Ok((
@@ -1900,6 +2045,7 @@ fn begin_portable_inspection(
                 inspect_password.set_sensitive(true);
                 choose_folder.set_sensitive(true);
                 choose_archive.set_sensitive(true);
+                choose_existing.set_sensitive(true);
                 gtk::glib::ControlFlow::Break
             }
             Ok((_, _, Err(backend::portable::PortableImportError::DownloadIncomplete(_)))) => {
@@ -1909,6 +2055,7 @@ fn begin_portable_inspection(
                 inspect_password.set_sensitive(password_row.is_visible());
                 choose_folder.set_sensitive(true);
                 choose_archive.set_sensitive(true);
+                choose_existing.set_sensitive(true);
                 gtk::glib::ControlFlow::Break
             }
             Ok((_, _, Err(error))) => {
@@ -1916,6 +2063,7 @@ fn begin_portable_inspection(
                 inspect_password.set_sensitive(password_row.is_visible());
                 choose_folder.set_sensitive(true);
                 choose_archive.set_sensitive(true);
+                choose_existing.set_sensitive(true);
                 gtk::glib::ControlFlow::Break
             }
             Err(std::sync::mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
@@ -1924,10 +2072,150 @@ fn begin_portable_inspection(
                 inspect_password.set_sensitive(password_row.is_visible());
                 choose_folder.set_sensitive(true);
                 choose_archive.set_sensitive(true);
+                choose_existing.set_sensitive(true);
                 gtk::glib::ControlFlow::Break
             }
         }
     });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn begin_existing_capsule_inspection(
+    image_path: PathBuf,
+    selection: &Rc<RefCell<Option<AddSelection>>>,
+    automatic_name: &Rc<RefCell<Option<String>>>,
+    source_row: &adw::ActionRow,
+    name_row: &adw::EntryRow,
+    executable_row: &adw::ComboRow,
+    executable_names: &gtk::StringList,
+    choose_folder: &gtk::Button,
+    choose_archive: &gtk::Button,
+    choose_existing: &gtk::Button,
+    create: &gtk::Button,
+    password_row: &adw::PasswordEntryRow,
+    inspect_password: &gtk::Button,
+    pending_archive: &Rc<RefCell<Option<backend::portable::PortableSource>>>,
+) {
+    *selection.borrow_mut() = None;
+    *pending_archive.borrow_mut() = None;
+    password_row.set_text("");
+    password_row.set_visible(false);
+    inspect_password.set_sensitive(false);
+    executable_names.splice(0, executable_names.n_items(), &[]);
+    executable_row.set_sensitive(false);
+    create.set_sensitive(false);
+    choose_folder.set_sensitive(false);
+    choose_archive.set_sensitive(false);
+    choose_existing.set_sensitive(false);
+    source_row.set_subtitle(&format!("Inspecting {} read-only…", image_path.display()));
+
+    let Ok(runtime_root) = runtime_root() else {
+        source_row.set_subtitle("XDG_RUNTIME_DIR is unavailable; inspection was blocked");
+        choose_folder.set_sensitive(true);
+        choose_archive.set_sensitive(true);
+        choose_existing.set_sensitive(true);
+        return;
+    };
+    let capabilities = backend::capabilities::Capabilities::detect();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let result = backend::existing::inspect_existing_capsule(
+            &image_path,
+            &runtime_root,
+            &backend::portable::ImportLimits::default(),
+            &capabilities,
+        );
+        let _ = sender.send(result);
+    });
+
+    let selection = Rc::clone(selection);
+    let automatic_name = Rc::clone(automatic_name);
+    let source_row = source_row.clone();
+    let name_row = name_row.clone();
+    let executable_row = executable_row.clone();
+    let executable_names = executable_names.clone();
+    let choose_folder = choose_folder.clone();
+    let choose_archive = choose_archive.clone();
+    let choose_existing = choose_existing.clone();
+    let create = create.clone();
+    gtk::glib::timeout_add_local(Duration::from_millis(100), move || {
+        match receiver.try_recv() {
+            Ok(Ok(result)) => {
+                let inspection = result.inspection;
+                let current_name = name_row.text().to_string();
+                let replace_name = current_name.trim().is_empty()
+                    || automatic_name.borrow().as_deref() == Some(current_name.as_str());
+                if replace_name {
+                    name_row.set_text(&inspection.suggested_name);
+                }
+                *automatic_name.borrow_mut() = Some(inspection.suggested_name.clone());
+
+                let labels: Vec<_> = inspection
+                    .executable_candidates
+                    .iter()
+                    .zip(&inspection.candidate_runners)
+                    .map(|(candidate, runner)| {
+                        let path = candidate
+                            .strip_prefix(backend::portable::PORTABLE_GAME_ROOT)
+                            .unwrap_or(candidate)
+                            .to_string_lossy()
+                            .into_owned();
+                        let platform = match runner {
+                            RunnerKind::Wine => "Windows",
+                            RunnerKind::Native => "Linux",
+                        };
+                        format!("{path} — {platform}")
+                    })
+                    .collect();
+                let label_refs: Vec<_> = labels.iter().map(String::as_str).collect();
+                executable_names.splice(0, executable_names.n_items(), &label_refs);
+                executable_row.set_selected(inspection.recommended_candidate as u32);
+                executable_row.set_sensitive(true);
+                source_row.set_subtitle(&format!(
+                    "{} — {} items, {:.1} MiB\nUses this file in place; removing the library entry keeps it",
+                    result.image_path.display(),
+                    inspection.entries,
+                    inspection.uncompressed_bytes as f64 / (1024.0 * 1024.0),
+                ));
+                *selection.borrow_mut() = Some(AddSelection::Existing(ExistingSelection {
+                    image_path: result.image_path,
+                    inspection,
+                }));
+                create.set_sensitive(true);
+                choose_folder.set_sensitive(true);
+                choose_archive.set_sensitive(true);
+                choose_existing.set_sensitive(true);
+                gtk::glib::ControlFlow::Break
+            }
+            Ok(Err(error)) => {
+                source_row.set_subtitle(&format!("Capsule rejected: {error}"));
+                choose_folder.set_sensitive(true);
+                choose_archive.set_sensitive(true);
+                choose_existing.set_sensitive(true);
+                gtk::glib::ControlFlow::Break
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                source_row.set_subtitle("Capsule inspection stopped unexpectedly");
+                choose_folder.set_sensitive(true);
+                choose_archive.set_sensitive(true);
+                choose_existing.set_sensitive(true);
+                gtk::glib::ControlFlow::Break
+            }
+        }
+    });
+}
+
+fn inspection_contains_candidate(
+    inspection: &backend::portable::PortableInspection,
+    entrypoint: &Path,
+    runner: RunnerKind,
+) -> bool {
+    inspection
+        .executable_candidates
+        .iter()
+        .zip(&inspection.candidate_runners)
+        .any(|(candidate, candidate_runner)| candidate == entrypoint && *candidate_runner == runner)
 }
 
 fn profile_description(selected: u32) -> &'static str {

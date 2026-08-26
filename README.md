@@ -5,7 +5,7 @@
 
 Capsule is an experimental Linux launcher for running an untrusted Windows or Linux game/application in its own removable, configurable environment.
 
-The MVP combines a Rust/GTK interface with Sandwine, Bubblewrap, Gamescope, optional Wine and a single sparse ext4 `.capsule` file. Capsule copies a portable Windows or Linux application from a folder or supported archive into that file and chooses its verified launcher. While the application is running, Capsule mounts the image in a private temporary runtime location; when it stops, the mount disappears. Moving that file to Trash removes the application's contained state from Capsule.
+The MVP combines a Rust/GTK interface with Sandwine, Bubblewrap, Gamescope, optional Wine and a single sparse ext4 `.capsule` file. Capsule copies a portable Windows or Linux application from a folder or supported archive into that file and chooses its verified launcher. It can also register a compatible existing `.capsule` file without copying it. While the application is running, Capsule mounts the image in a private temporary runtime location; when it stops, the mount disappears. Moving a Capsule-owned file to Trash removes the application's contained state from Capsule.
 
 > [!WARNING]
 > Capsule is early-stage software and has **not** received a security audit. It reduces accidental host access and raises the cost of malicious behavior, but it does not make unknown software safe. The fast backend shares the host Linux kernel and, when enabled, the host GPU driver. Its host-side `fuse2fs` and Gamescope helpers are trusted, unsandboxed user processes; a vulnerability in either could expose your account. Do not use the container backend to analyze known malware.
@@ -13,7 +13,7 @@ The MVP combines a Rust/GTK interface with Sandwine, Bubblewrap, Gamescope, opti
 ## MVP goals
 
 - Present installed capsules in a clean GTK 4/libadwaita library.
-- Select a portable application folder or supported archive and choose one validated Windows or Linux launcher; never run it from `Downloads` or bind the source into the runtime sandbox.
+- Select a portable application folder, supported archive, or compatible existing `.capsule` and choose one validated Windows or Linux launcher; never run folder/archive content from `Downloads` or bind that source into the runtime sandbox.
 - Keep the game, optional Wine prefix, contained application settings and saves in one sparse `.capsule` file at rest.
 - Mount the image with `fuse2fs` only for the duration of a run.
 - Launch native or Wine applications through Sandwine/Bubblewrap on Gamescope's per-run Xwayland display instead of exposing the host X11 display.
@@ -86,13 +86,27 @@ Those are host facilities, not application packages Capsule can safely bundle.
 The AppImage deliberately uses the host GPU driver because a copied driver can
 be incompatible with the running kernel.
 
+### Adding an existing capsule
+
+Open **Add**, select **Capsule…**, and choose a `.capsule` file previously
+created by Capsule. The image is locked, mounted read-only, and checked for the
+expected `prefix/drive_c/Game` layout. Capsule discovers the contained Windows
+or Linux launchers without executing them, then lets you choose the launcher
+and access preset before adding the entry.
+
+The selected file is registered in place, so this operation does not duplicate
+a potentially large image. Keep it at that path. Removing an existing-image
+entry only unregisters it and leaves the file untouched; Capsule-owned images
+created from a folder or archive still use **Move to Trash**. Registering the
+same image more than once is rejected.
+
 Release artifacts are produced by
 [the AppImage workflow](.github/workflows/appimage.yml). The AppImage directory
 and entrypoint follow the official AppImage layout, while Capsule's runtime
 overrides keep every bundled helper relocatable.
 
 Every push to `main` uploads a 14-day downloadable AppImage workflow artifact.
-Pushing a version tag matching `Cargo.toml` (for example `v0.1.0`) also creates
+Pushing a version tag matching `Cargo.toml` (for example `v0.2.0`) also creates
 a public GitHub Release automatically and attaches both the AppImage and its
 SHA-256 file. The workflow can still be started manually without publishing a
 release.
@@ -282,7 +296,7 @@ Direct access to the host home directory, host X11, session/system D-Bus, `/dev/
 - Image capacity is chosen at import time from the validated payload size. Automatic growth and recovery are not implemented yet.
 - Some anti-cheat and DRM systems will not work in Wine, namespaces or virtual machines.
 - FUSE and a nested compositor add some overhead. It should normally be small for games, but “zero performance loss” is not a defensible guarantee.
-- Deleting a capsule is logical removal, not forensic erasure from SSD history, swap, backups or filesystem snapshots.
+- Deleting a Capsule-owned image is logical removal, not forensic erasure from SSD history, swap, backups or filesystem snapshots. Existing images registered in place are only unregistered.
 - A crashed or forcibly killed supervisor can leave a stale FUSE mount; automatic ownership-checked recovery and an in-app Stop action are not implemented yet.
 - Gamescope 3.16.24 can fault while tearing down its private Xwayland display on the current NVIDIA stack after the contained application has exited. Capsule disables core-file creation for the transient service and still waits for teardown before unmounting, but the helper failure may be reported after an otherwise successful run.
 
@@ -295,6 +309,7 @@ Direct access to the host home directory, host X11, session/system D-Bus, `/dev/
 - [x] Add a portable game-directory/archive workflow that creates a fresh prefix without exposing the download at runtime.
 - [x] Add bounded ZIP validation and race-resistant dirfd traversal with mount-boundary checks.
 - [x] Add full-engine archive import, multipart 7z/RAR/ZIP resolution and compressed-TAR streaming through resource-limited Bubblewrap workers.
+- [x] Add read-only inspection and in-place registration for compatible existing capsule images.
 - [ ] Move the remaining import coordination into a separate worker.
 - [ ] Add a contained standalone-installer workflow and post-install executable selection.
 - [ ] Add configurable/bounded sparse-image growth, `e2fsck` recovery and safe stale-mount cleanup.

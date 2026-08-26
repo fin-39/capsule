@@ -19,8 +19,11 @@ pub enum RunnerKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum StorageKind {
-    /// A single capsule filesystem image.
+    /// A single capsule filesystem image created and owned by Capsule.
     Image { path: PathBuf },
+    /// A capsule image registered in place. Removing its library entry must
+    /// never delete or move the underlying user-owned file.
+    ExternalImage { path: PathBuf },
     /// An unpacked directory, intended for development and debugging only.
     DirectoryDev { path: PathBuf },
 }
@@ -28,12 +31,25 @@ pub enum StorageKind {
 impl StorageKind {
     pub fn path(&self) -> &Path {
         match self {
-            Self::Image { path } | Self::DirectoryDev { path } => path,
+            Self::Image { path } | Self::ExternalImage { path } | Self::DirectoryDev { path } => {
+                path
+            }
         }
     }
 
     pub fn is_image(&self) -> bool {
+        matches!(self, Self::Image { .. } | Self::ExternalImage { .. })
+    }
+
+    pub fn is_managed_image(&self) -> bool {
         matches!(self, Self::Image { .. })
+    }
+
+    pub fn image_path(&self) -> Option<&Path> {
+        match self {
+            Self::Image { path } | Self::ExternalImage { path } => Some(path),
+            Self::DirectoryDev { .. } => None,
+        }
     }
 }
 
@@ -742,5 +758,23 @@ mod tests {
         let json = serde_json::to_string(&library).unwrap();
         let decoded: LibraryState = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded, library);
+    }
+
+    #[test]
+    fn external_images_are_image_backed_but_not_managed() {
+        let storage = StorageKind::ExternalImage {
+            path: PathBuf::from("/downloads/game.capsule"),
+        };
+
+        assert!(storage.is_image());
+        assert!(!storage.is_managed_image());
+        assert_eq!(
+            storage.image_path(),
+            Some(Path::new("/downloads/game.capsule"))
+        );
+
+        let json = serde_json::to_string(&storage).unwrap();
+        let decoded: StorageKind = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, storage);
     }
 }

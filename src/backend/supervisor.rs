@@ -79,7 +79,7 @@ fn run_with_mode(
             let status = plan.command.execute().map_err(SupervisorError::Spawn)?;
             ensure_success(status)
         }
-        StorageKind::Image { path } => {
+        StorageKind::Image { path } | StorageKind::ExternalImage { path } => {
             let image_lock = lock_image(path)?;
             let runtime_root = runtime_root()?;
             fs::create_dir_all(&runtime_root).map_err(|source| io_error(&runtime_root, source))?;
@@ -174,7 +174,7 @@ fn ensure_wine_record(record: &CapsuleRecord) -> Result<(), SupervisorError> {
 fn copy_steam_installer(record: &CapsuleRecord, installer: &Path) -> Result<(), SupervisorError> {
     match &record.storage {
         StorageKind::DirectoryDev { path } => copy_installer_into_prefix(path, installer),
-        StorageKind::Image { path } => {
+        StorageKind::Image { path } | StorageKind::ExternalImage { path } => {
             let image_lock = lock_image(path)?;
             let capabilities = detect_with_environment_override()?;
             let runtime_root = runtime_root()?;

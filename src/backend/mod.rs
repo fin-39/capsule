@@ -8,6 +8,7 @@
 
 pub mod audio;
 pub mod capabilities;
+pub mod existing;
 pub mod icon;
 pub mod importer;
 pub mod launcher;

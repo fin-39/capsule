@@ -2,7 +2,7 @@
 
 This document describes the current Windows/Linux MVP and the security properties it should preserve as it grows. It is a design document, not a security audit or a claim that every described hardening measure is already implemented.
 
-The current `0.1.0` implementation has bounded portable-folder/archive import, sparse ext4 image creation, rootless FUSE mounting, an external locked JSON policy store, advisory image locking, transient-user-service resource limits, native/Wine execution through Sandwine/Bubblewrap, a private Gamescope display, rootless Internet-only networking, playback-only audio, opt-in text clipboard brokering and a narrowly scoped official Steam-installer workflow. Archive parsing runs in narrow full-7-Zip workers, while import coordination remains in Capsule's trusted process. It deliberately blocks controller access and the no-GPU profile. General standalone-installer ingestion, LAN-only/custom-endpoint filters, a separate worker for the remaining importer, sandboxing host-side FUSE/Gamescope helpers, stale-mount recovery, an in-app Stop action, snapshots and the VM backend remain design targets.
+The current `0.2.0` implementation has bounded portable-folder/archive import, read-only inspection and in-place registration of compatible existing images, sparse ext4 image creation, rootless FUSE mounting, an external locked JSON policy store, advisory image locking, transient-user-service resource limits, native/Wine execution through Sandwine/Bubblewrap, a private Gamescope display, rootless Internet-only networking, playback-only audio, opt-in text clipboard brokering and a narrowly scoped official Steam-installer workflow. Archive parsing runs in narrow full-7-Zip workers, while import coordination remains in Capsule's trusted process. It deliberately blocks controller access and the no-GPU profile. General standalone-installer ingestion, LAN-only/custom-endpoint filters, a separate worker for the remaining importer, sandboxing host-side FUSE/Gamescope helpers, stale-mount recovery, an in-app Stop action, snapshots and the VM backend remain design targets.
 
 The release artifact is a relocatable x86_64 AppImage. Its read-only AppDir
 contains Capsule's user-space runtime and exposes every authority-bearing helper
@@ -128,7 +128,7 @@ $XDG_RUNTIME_DIR/capsule/<run-id>/root
 
 The exact path is an implementation detail and must use a freshly created, mode-0700 directory owned by the current user. The contained process sees the mounted filesystem, not the host path of the `.capsule` file and not the raw backing-file descriptor.
 
-The MVP intentionally does not attach the file to a kernel loop device or ask a privileged disk service to mount it. Parsing ext4 in userspace avoids giving the kernel ext4 parser the image. In `0.1.0`, however, `fuse2fs` is an ordinary process running with the logged-in user's host authority; a compromise of that trusted helper is not contained by Capsule. It should eventually run in a small sandbox with only:
+The MVP intentionally does not attach the file to a kernel loop device or ask a privileged disk service to mount it. Parsing ext4 in userspace avoids giving the kernel ext4 parser the image. In `0.2.0`, however, `fuse2fs` is an ordinary process running with the logged-in user's host authority; a compromise of that trusted helper is not contained by Capsule. It should eventually run in a small sandbox with only:
 
 - the already-open capsule FD;
 - its FUSE connection;
@@ -196,7 +196,7 @@ Bubblewrap gives Wine a private IPC namespace. Xwayland's MIT-SHM extension is t
 
 This prevents an X11 application from sharing an X server with desktop applications. It also gives Capsule one host window to associate with one run. When Clipboard is off, a Gamescope-only registry guard hides the host data-device and primary-selection protocols so private selections cannot be exported. When Clipboard is on, Gamescope exports private X11 text selections and the trusted sidecar imports at most 1 MiB of UTF-8 text through `wl-paste` into the private X server. Wine never receives the host Wayland socket. Screencopy, virtual-input and other privileged protocol bridges remain disabled.
 
-Gamescope is still a broker that talks to the host compositor and GPU. In `0.1.0` it runs host-side with a sanitized set of session variables, but it is not itself filesystem-sandboxed. The two small private-display adapters are trusted host processes as well. A future version should reduce their host files, D-Bus and network access to what presentation strictly needs. Gamescope, Xwayland and those adapters remain part of the trusted computing base.
+Gamescope is still a broker that talks to the host compositor and GPU. In `0.2.0` it runs host-side with a sanitized set of session variables, but it is not itself filesystem-sandboxed. The two small private-display adapters are trusted host processes as well. A future version should reduce their host files, D-Bus and network access to what presentation strictly needs. Gamescope, Xwayland and those adapters remain part of the trusted computing base.
 
 ### 5. Supervise and stop (target)
 

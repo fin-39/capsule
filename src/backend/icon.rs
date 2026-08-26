@@ -42,7 +42,7 @@ pub fn cache_record_icon(
             let executable = resolve_executable(path, &icon_source)?;
             extract_sandboxed(&executable, destination, capsule_executable, capabilities)
         }
-        StorageKind::Image { path } => {
+        StorageKind::Image { path } | StorageKind::ExternalImage { path } => {
             let image_lock = lock_image(path)?;
             fs::create_dir_all(runtime_root).map_err(|source| io_error(runtime_root, source))?;
             fs::set_permissions(runtime_root, fs::Permissions::from_mode(0o700))

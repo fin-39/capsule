@@ -4,6 +4,7 @@ use std::fs::{self, OpenOptions};
 use std::os::unix::fs::symlink;
 
 use capsule::backend::capabilities::{Capability, CapabilityReport};
+use capsule::backend::existing::inspect_existing_capsule;
 use capsule::backend::importer::{ImportRequest, import_prepared_prefix};
 use capsule::backend::portable::{
     ImportLimits, PortableImportRequest, PortableSource, import_portable_game,
@@ -111,6 +112,16 @@ fn packages_a_portable_game_without_running_it_when_fuse_is_available() {
     );
     assert!(!mount_point.join("prefix/system.reg").exists());
     mount.execute_unmount().unwrap();
+
+    let existing =
+        inspect_existing_capsule(&image, &runtime, &ImportLimits::default(), &capabilities)
+            .unwrap();
+    assert_eq!(existing.image_path, image.canonicalize().unwrap());
+    assert_eq!(existing.inspection.suggested_name, "Portable");
+    assert_eq!(
+        existing.inspection.executable_candidates,
+        [std::path::PathBuf::from("drive_c/Game/bin/Game.exe")]
+    );
 }
 
 #[test]

@@ -139,7 +139,9 @@ pub fn build_wine_prepare_plan_with(
 
     let root = match &record.storage {
         StorageKind::DirectoryDev { path } => path,
-        StorageKind::Image { .. } => return Err(LaunchError::ImageSupervisorRequired),
+        StorageKind::Image { .. } | StorageKind::ExternalImage { .. } => {
+            return Err(LaunchError::ImageSupervisorRequired);
+        }
     };
     validate_runtime_root(root)?;
 
@@ -289,7 +291,9 @@ fn build_launch_plan_with_runtime(
 
     let root = match &record.storage {
         StorageKind::DirectoryDev { path } => path,
-        StorageKind::Image { .. } => return Err(LaunchError::ImageSupervisorRequired),
+        StorageKind::Image { .. } | StorageKind::ExternalImage { .. } => {
+            return Err(LaunchError::ImageSupervisorRequired);
+        }
     };
     validate_runtime_root(root)?;
     let mut warnings = Vec::new();

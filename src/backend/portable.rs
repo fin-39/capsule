@@ -248,6 +248,24 @@ pub fn inspect_portable_source_with_password(
     Ok(inspection)
 }
 
+/// Inspect the fixed portable-game subtree from a read-only mounted capsule.
+/// This shares the same race-resistant traversal and launcher classification
+/// as a fresh folder import, while keeping the returned paths relative to the
+/// capsule prefix (`drive_c/Game/...`).
+pub(super) fn inspect_capsule_game_directory(
+    source: &Path,
+    suggested_name: String,
+    limits: &ImportLimits,
+) -> Result<PortableInspection, PortableImportError> {
+    let mut inspection = inspect_directory(source, limits, None)?;
+    if inspection.executable_candidates.is_empty() {
+        return Err(PortableImportError::NoWindowsExecutables);
+    }
+    inspection.suggested_name = suggested_name;
+    inspection.recommended_candidate = recommend_candidate(&inspection);
+    Ok(inspection)
+}
+
 pub fn import_portable_game(
     request: &PortableImportRequest,
     capabilities: &CapabilityReport,
