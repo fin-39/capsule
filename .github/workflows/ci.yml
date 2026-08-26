@@ -26,4 +26,4 @@ jobs:
       - name: Run tests
         run: cargo test --locked
       - name: Build release binaries
-        run: cargo build --locked --release --bins
+        run: cargo build --locked --release --bins --lib

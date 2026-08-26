@@ -10,7 +10,7 @@ test:
 	cargo test
 
 release:
-	cargo build --release --bins
+	cargo build --release --bins --lib
 
 run:
 	cargo run

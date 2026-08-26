@@ -178,7 +178,7 @@ make release
 For an optimized local build:
 
 ```console
-cargo build --release --bins
+cargo build --release --bins --lib
 target/release/capsule
 ```
 

@@ -55,7 +55,7 @@ mkdir -p -- \
     "$appdir/usr/share/capsule" \
     "$dist_dir"
 
-cargo build --locked --release --bins
+cargo build --locked --release --bins --lib
 
 install -Dm755 target/release/capsule "$appdir/usr/bin/capsule"
 install -Dm755 target/release/capsule-network "$appdir/usr/libexec/capsule/capsule-network"
