@@ -1,0 +1,42 @@
+name: AppImage
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  appimage:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install build and bundled runtime dependencies
+        run: >-
+          pacman -Syu --noconfirm --needed
+          git rust gtk4 libadwaita libx11 pkgconf
+          e2fsprogs fuse2fs fuse3 bubblewrap gamescope xorg-xwayland wine
+          python python-pip 7zip imagemagick
+          slirp4netns nftables wl-clipboard curl
+      - uses: actions/checkout@v4
+      - name: Download the official AppImage build tool
+        run: |
+          mkdir -p target
+          curl --fail --location --proto '=https' \
+            --output target/appimagetool-x86_64.AppImage \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod 0755 target/appimagetool-x86_64.AppImage
+      - name: Build the one-file release
+        env:
+          APPIMAGETOOL: ${{ github.workspace }}/target/appimagetool-x86_64.AppImage
+        run: ./scripts/build-appimage.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Capsule-AppImage
+          path: |
+            dist/*.AppImage
+            dist/*.sha256
+          if-no-files-found: error

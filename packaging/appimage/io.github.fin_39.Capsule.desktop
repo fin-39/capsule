@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Capsule
+GenericName=Contained application launcher
+Comment=Run portable Windows and Linux applications in isolated capsules
+Exec=capsule
+Icon=io.github.fin_39.Capsule
+Terminal=false
+StartupNotify=true
+StartupWMClass=io.github.fin_39.Capsule
+Categories=Utility;
+Keywords=Wine;Sandbox;Games;Container;
+PrefersNonDefaultGPU=true

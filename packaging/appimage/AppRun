@@ -1,0 +1,52 @@
+#!/bin/sh
+set -eu
+
+if [ -z "${APPDIR:-}" ]; then
+    APPDIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+fi
+
+runtime_bin=$APPDIR/usr/bin
+runtime_lib=$APPDIR/usr/lib
+runtime_libexec=$APPDIR/usr/libexec/capsule
+runtime_share=$APPDIR/usr/share
+
+export PATH="$runtime_bin:/usr/bin:/bin"
+export LD_LIBRARY_PATH="$runtime_lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export XDG_DATA_DIRS="$runtime_share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+export GIO_EXTRA_MODULES="$runtime_lib/gio/modules"
+export GST_PLUGIN_SYSTEM_PATH_1_0="$runtime_lib/gstreamer-1.0"
+export MAGICK_CONFIGURE_PATH="$runtime_share/capsule/imagemagick"
+export MAGICK_CODER_MODULE_PATH="$runtime_lib/capsule/imagemagick/coders"
+
+export CAPSULE_BUNDLE_ROOT="$APPDIR"
+export CAPSULE_BUBBLEWRAP="$runtime_bin/bwrap"
+export CAPSULE_GAMESCOPE="$runtime_bin/gamescope"
+export CAPSULE_XWAYLAND="$runtime_bin/Xwayland"
+export CAPSULE_XWAYLAND_WRAPPER="$runtime_libexec/capsule-xwayland"
+export CAPSULE_WINDOW_CENTER="$runtime_libexec/capsule-window-center"
+export CAPSULE_NETWORK_HELPER="$runtime_libexec/capsule-network"
+export CAPSULE_CLIPBOARD_GUARD="$runtime_lib/capsule/libcapsule.so"
+export CAPSULE_WL_PASTE="$runtime_bin/wl-paste"
+export CAPSULE_WINE="$runtime_bin/wine"
+export CAPSULE_WINESERVER="$runtime_bin/wineserver"
+export CAPSULE_WINEBOOT="$runtime_bin/wineboot"
+export CAPSULE_WINEPATH="$runtime_bin/winepath"
+export CAPSULE_WINE_INF="$runtime_share/wine/wine.inf"
+export CAPSULE_FUSE2FS="$runtime_bin/fuse2fs"
+export CAPSULE_MKFS_EXT4="$runtime_bin/mkfs.ext4"
+export CAPSULE_SYSTEMD_RUN="$runtime_bin/systemd-run"
+export CAPSULE_SYSTEMCTL="$runtime_bin/systemctl"
+export CAPSULE_SANDWINE="$runtime_libexec/sandwine"
+export CAPSULE_SLIRP4NETNS="$runtime_bin/slirp4netns"
+export CAPSULE_NFT="$runtime_bin/nft"
+export CAPSULE_CURL="$runtime_bin/curl"
+export CAPSULE_FUSERMOUNT="$runtime_bin/fusermount3"
+export CAPSULE_TIMEOUT="$runtime_bin/timeout"
+export CAPSULE_PRLIMIT="$runtime_bin/prlimit"
+export CAPSULE_7Z="$runtime_lib/7zip/7z"
+export CAPSULE_7Z_PLUGIN="$runtime_lib/7zip/7z.so"
+export CAPSULE_MAGICK="$runtime_bin/magick"
+export CAPSULE_COMPAT_FONT_DIR="$runtime_share/capsule/fonts/windows-compat"
+export CAPSULE_DXVK_DIR="$runtime_share/capsule/dxvk/windows-compat"
+
+exec "$runtime_bin/capsule" "$@"

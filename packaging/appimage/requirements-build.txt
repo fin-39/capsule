@@ -1,0 +1,2 @@
+PyInstaller==6.22.2
+sandwine==8.0.1

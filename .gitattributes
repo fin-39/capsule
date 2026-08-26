@@ -1,0 +1,9 @@
+* text=auto eol=lf
+
+*.dll binary
+*.ttc binary
+*.ttf binary
+*.png binary
+*.ico binary
+*.capsule binary
+*.AppImage binary

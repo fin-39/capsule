@@ -1,0 +1,46 @@
+.capsule-card {
+  min-width: 0;
+  padding: 18px;
+}
+
+.capsule-icon-frame {
+  min-width: 86px;
+  min-height: 86px;
+  border-radius: 16px;
+  background: alpha(@window_fg_color, 0.055);
+}
+
+.capsule-name {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.capsule-game-icon {
+  min-width: 72px;
+  min-height: 72px;
+}
+
+.capsule-access {
+  color: @accent_color;
+}
+
+.muted {
+  color: alpha(@window_fg_color, 0.66);
+}
+
+.danger-note {
+  padding: 12px;
+  border-radius: 12px;
+  color: #ffbe6f;
+  background: alpha(#e66100, 0.12);
+}
+
+/* A permanently open ExpanderRow provides Adwaita's nested-row styling for
+ * static subgroups without advertising an action that does not exist. */
+row.expander.static-group image.expander-row-arrow {
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  opacity: 0;
+  -gtk-icon-size: 0;
+}

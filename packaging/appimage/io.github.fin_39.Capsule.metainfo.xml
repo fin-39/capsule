@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.fin_39.Capsule</id>
+  <name>Capsule</name>
+  <summary>Run portable applications in isolated, removable environments</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <url type="homepage">https://github.com/fin-39/capsule</url>
+  <description>
+    <p>
+      Capsule imports a portable Windows or Linux application into a single
+      removable capsule file and launches it through a private Gamescope,
+      Xwayland and Bubblewrap environment.
+    </p>
+    <p>
+      Network, audio, clipboard and other permissions are controlled outside
+      the capsule. Capsule is experimental and is not a malware-analysis tool.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.fin_39.Capsule.desktop</launchable>
+  <provides>
+    <binary>capsule</binary>
+  </provides>
+  <releases>
+    <release version="0.1.0" date="2026-08-26"/>
+  </releases>
+</component>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <title>Capsule</title>
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7c5cff"/>
+      <stop offset="1" stop-color="#3b82f6"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="#171a24"/>
+  <g transform="rotate(-32 128 128)">
+    <rect x="50" y="82" width="156" height="92" rx="46" fill="url(#body)"/>
+    <path d="M128 82h32a46 46 0 0 1 0 92h-32z" fill="#dbeafe" opacity=".94"/>
+    <path d="M128 82v92" stroke="#171a24" stroke-width="10" opacity=".55"/>
+  </g>
+</svg>

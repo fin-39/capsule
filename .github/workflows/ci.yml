@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install build dependencies
+        run: >-
+          pacman -Syu --noconfirm --needed
+          git rust gtk4 libadwaita libx11 pkgconf
+          e2fsprogs fuse2fs fuse3 bubblewrap gamescope xorg-xwayland wine
+          python 7zip imagemagick slirp4netns nftables wl-clipboard curl
+      - uses: actions/checkout@v4
+      - name: Check formatting
+        run: cargo fmt --check
+      - name: Check all targets
+        run: cargo check --locked --all-targets
+      - name: Run tests
+        run: cargo test --locked
+      - name: Build release binaries
+        run: cargo build --locked --release --bins

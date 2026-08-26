@@ -1,0 +1,33 @@
+[package]
+name = "capsule"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+description = "Import and run portable Windows games and apps from capsule files"
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/fin-39/capsule"
+repository = "https://github.com/fin-39/capsule"
+keywords = ["sandbox", "wine", "games", "linux", "wayland"]
+categories = ["games", "gui", "os::linux-apis"]
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+anyhow = "1.0.102"
+fs2 = "0.4.3"
+flate2 = { version = "1.1.9", default-features = false, features = ["rust_backend"] }
+gtk = { package = "gtk4", version = "0.11.4", features = ["v4_18"] }
+adw = { package = "libadwaita", version = "0.9.2", features = ["v1_7", "gtk_v4_18"] }
+rustix = { version = "1.1.4", features = ["fs", "mount", "process", "thread"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+thiserror = "2.0.18"
+tempfile = "3.25.0"
+uuid = { version = "1.23.3", features = ["serde", "v4"] }
+zip = { version = "7.2.0", default-features = false, features = ["deflate-flate2"] }
+
+[profile.release]
+lto = "thin"
+strip = "debuginfo"
