@@ -26,6 +26,8 @@ jobs:
           git rust gtk4 libadwaita libx11 pkgconf
           e2fsprogs fuse2fs fuse3 bubblewrap gamescope xorg-xwayland wine
           python python-pip 7zip imagemagick
+          gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad
+          gst-plugins-ugly gst-libav
           slirp4netns nftables wl-clipboard curl
       - uses: actions/checkout@v4
       - name: Verify release tag matches the package version
