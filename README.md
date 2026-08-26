@@ -88,6 +88,12 @@ Release artifacts are produced by
 and entrypoint follow the official AppImage layout, while Capsule's runtime
 overrides keep every bundled helper relocatable.
 
+Every push to `main` uploads a 14-day downloadable AppImage workflow artifact.
+Pushing a version tag matching `Cargo.toml` (for example `v0.1.0`) also creates
+a public GitHub Release automatically and attaches both the AppImage and its
+SHA-256 file. The workflow can still be started manually without publishing a
+release.
+
 ## Building from source
 
 The following packages are needed by contributors building or running directly

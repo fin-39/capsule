@@ -3,11 +3,17 @@ name: AppImage
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - "v*"
 
 permissions:
   contents: read
+
+concurrency:
+  group: appimage-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   appimage:
@@ -22,6 +28,14 @@ jobs:
           python python-pip 7zip imagemagick
           slirp4netns nftables wl-clipboard curl
       - uses: actions/checkout@v4
+      - name: Verify release tag matches the package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          expected="v$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          if [ "$GITHUB_REF_NAME" != "$expected" ]; then
+            echo "Release tag $GITHUB_REF_NAME does not match Cargo.toml ($expected)" >&2
+            exit 1
+          fi
       - name: Download the official AppImage build tool
         run: |
           mkdir -p target
@@ -40,3 +54,27 @@ jobs:
             dist/*.AppImage
             dist/*.sha256
           if-no-files-found: error
+          retention-days: 14
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: appimage
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Capsule-AppImage
+          path: release-assets
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          release-assets/*.AppImage
+          release-assets/*.sha256
+          --verify-tag
+          --generate-notes
+          --title "Capsule $GITHUB_REF_NAME"
