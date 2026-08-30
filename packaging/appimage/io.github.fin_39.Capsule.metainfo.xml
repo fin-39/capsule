@@ -22,6 +22,7 @@
     <binary>capsule</binary>
   </provides>
   <releases>
+    <release version="0.2.7" date="2026-08-31"/>
     <release version="0.2.6" date="2026-08-30"/>
     <release version="0.2.5" date="2026-08-30"/>
     <release version="0.2.4" date="2026-08-30"/>

@@ -331,13 +331,12 @@ fi
 
 chmod 0755 "$appdir/AppRun"
 rm -f -- "$output"
+# Gzip is intentional: systems without /dev/fuse use AppImage's extract-and-run
+# fallback on every launch. XZ saves download space but makes each start take
+# tens of seconds; the larger gzip image decompresses much faster.
 ARCH=x86_64 VERSION="$version" APPIMAGE_EXTRACT_AND_RUN=1 \
     nice -n 10 "$appimagetool" \
-    --comp xz \
-    --mksquashfs-opt=-b \
-    --mksquashfs-opt=1M \
-    --mksquashfs-opt=-Xbcj \
-    --mksquashfs-opt=x86 \
+    --comp gzip \
     --mksquashfs-opt=-processors \
     --mksquashfs-opt="$build_jobs" \
     "$appdir" "$output"
