@@ -35,6 +35,8 @@ their runtime libraries from the build environment:
 - curl and its protocol libraries (curl license and their respective licenses)
 - Python and the PyInstaller-built Sandwine launcher (PSF-2.0 and
   GPL-2.0-or-later with PyInstaller's bootloader exception)
+- GNU C Library compatibility runtime used only by Sandwine
+  (LGPL-2.1-or-later)
 - systemd and util-linux command-line helpers (LGPL-2.1-or-later and
   GPL-2.0-or-later components)
 

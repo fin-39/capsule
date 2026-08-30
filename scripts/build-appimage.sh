@@ -196,13 +196,34 @@ PYINSTALLER_CONFIG_DIR="$work_root/pyinstaller-cache" \
     "$python_env/bin/python" -m PyInstaller \
     --clean \
     --noconfirm \
-    --onefile \
-    --name sandwine \
+    --onedir \
+    --name sandwine-runtime \
     --copy-metadata sandwine \
     --distpath "$appdir/usr/libexec/capsule" \
     --workpath "$pyinstaller_work/work" \
     --specpath "$pyinstaller_work/spec" \
     packaging/appimage/sandwine_entry.py
+install -Dm755 packaging/appimage/sandwine-wrapper \
+    "$appdir/usr/libexec/capsule/sandwine"
+
+# Sandwine is frozen with the build host's Python, whose native extension
+# modules can require that host's glibc. Keep that compatibility runtime
+# isolated behind sandwine-wrapper; the rest of the AppImage deliberately
+# continues using the host's glibc and graphics stack.
+glibc_runtime=$appdir/usr/lib/capsule/glibc
+for library in \
+    ld-linux-x86-64.so.2 \
+    libc.so.6 libm.so.6 libmvec.so.1 \
+    libdl.so.2 libpthread.so.0 librt.so.1 \
+    libresolv.so.2 libutil.so.1 libanl.so.1 libnsl.so.1 \
+    libnss_dns.so.2 libnss_files.so.2; do
+    source=/usr/lib/$library
+    if [[ ! -f $source ]]; then
+        echo "The Sandwine glibc runtime is missing $source" >&2
+        exit 2
+    fi
+    install -Dm755 -T "$source" "$glibc_runtime/$library"
+done
 mkdir -p -- "$appdir/usr/share/capsule/sources"
 cp -a "$site_packages/sandwine" "$appdir/usr/share/capsule/sources/sandwine-8.0.1"
 install -Dm644 "$site_packages/sandwine-8.0.1.dist-info/licenses/COPYING" \
@@ -278,7 +299,7 @@ if command -v pacman >/dev/null 2>&1; then
     package_inventory=$appdir/usr/share/licenses/PACKAGE_VERSIONS.txt
     : > "$package_inventory"
     for package in \
-        wine gamescope xorg-xwayland bubblewrap e2fsprogs fuse2fs fuse3 \
+        wine gamescope xorg-xwayland bubblewrap e2fsprogs fuse2fs fuse3 glibc \
         slirp4netns nftables gtk4 glib2 libadwaita 7zip wl-clipboard \
         curl imagemagick gstreamer gst-plugins-base-libs gst-plugins-base \
         gst-plugins-good gst-plugins-bad gst-plugins-ugly gst-libav; do

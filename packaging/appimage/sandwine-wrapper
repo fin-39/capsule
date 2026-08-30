@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+appdir=$(CDPATH= cd -- "$script_dir/../../.." && pwd)
+glibc_dir=$appdir/usr/lib/capsule/glibc
+runtime_dir=$script_dir/sandwine-runtime
+
+exec "$glibc_dir/ld-linux-x86-64.so.2" \
+    --library-path "$glibc_dir:$runtime_dir/_internal:$appdir/usr/lib" \
+    "$runtime_dir/sandwine-runtime" "$@"

@@ -11,7 +11,7 @@ runtime_libexec=$APPDIR/usr/libexec/capsule
 runtime_share=$APPDIR/usr/share
 
 export PATH="$runtime_bin:/usr/bin:/bin"
-export LD_LIBRARY_PATH="$runtime_lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="$runtime_lib:$runtime_lib/systemd${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export XDG_DATA_DIRS="$runtime_share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 export GIO_EXTRA_MODULES="$runtime_lib/gio/modules"
 export GST_PLUGIN_SYSTEM_PATH_1_0="$runtime_lib/gstreamer-1.0"
@@ -47,5 +47,16 @@ export CAPSULE_7Z_PLUGIN="$runtime_lib/7zip/7z.so"
 export CAPSULE_MAGICK="$runtime_bin/magick"
 export CAPSULE_COMPAT_FONT_DIR="$runtime_share/capsule/fonts/windows-compat"
 export CAPSULE_DXVK_DIR="$runtime_share/capsule/dxvk/windows-compat"
+
+if [ "${1:-}" = "--doctor" ]; then
+    if ! "$runtime_bin/systemd-run" --version >/dev/null; then
+        echo "Capsule runtime doctor: bundled systemd-run cannot start" >&2
+        exit 1
+    fi
+    if ! "$runtime_libexec/sandwine" --version >/dev/null; then
+        echo "Capsule runtime doctor: bundled Sandwine cannot start" >&2
+        exit 1
+    fi
+fi
 
 exec "$runtime_bin/capsule" "$@"
