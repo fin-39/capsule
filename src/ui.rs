@@ -400,7 +400,14 @@ impl UiState {
         let paths = self.paths.clone();
         let (sender, receiver) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let capabilities = backend::capabilities::Capabilities::detect();
+            let capabilities = match backend::capabilities::detect_with_environment_override() {
+                Ok(capabilities) => capabilities,
+                Err(error) => {
+                    eprintln!("Capsule runtime configuration is invalid: {error}");
+                    let _ = sender.send(false);
+                    return;
+                }
+            };
             let mut changed = false;
             for record in pending {
                 let destination = paths.icon_path(record.id);
@@ -872,6 +879,13 @@ impl UiState {
                     state.toast("XDG_RUNTIME_DIR is unavailable; import was blocked");
                     return;
                 };
+                let capabilities = match backend::capabilities::detect_with_environment_override() {
+                    Ok(capabilities) => capabilities,
+                    Err(error) => {
+                        state.toast(&format!("Runtime configuration is invalid: {error}"));
+                        return;
+                    }
+                };
                 page.set_sensitive(false);
                 create_button.set_sensitive(false);
                 create_button.set_label(if matches!(&selection, AddSelection::Portable(_)) {
@@ -882,7 +896,6 @@ impl UiState {
                 cancel_button.set_sensitive(false);
                 state.back_button.set_sensitive(false);
                 state.window.set_deletable(false);
-                let capabilities = backend::capabilities::Capabilities::detect();
                 let (sender, receiver) = std::sync::mpsc::channel();
                 let selected_entrypoint = entrypoint.clone();
                 let selected_runner = runner;
@@ -2116,7 +2129,16 @@ fn begin_existing_capsule_inspection(
         choose_existing.set_sensitive(true);
         return;
     };
-    let capabilities = backend::capabilities::Capabilities::detect();
+    let capabilities = match backend::capabilities::detect_with_environment_override() {
+        Ok(capabilities) => capabilities,
+        Err(error) => {
+            source_row.set_subtitle(&format!("Runtime configuration is invalid: {error}"));
+            choose_folder.set_sensitive(true);
+            choose_archive.set_sensitive(true);
+            choose_existing.set_sensitive(true);
+            return;
+        }
+    };
     let (sender, receiver) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let result = backend::existing::inspect_existing_capsule(
@@ -2381,5 +2403,15 @@ mod tests {
         assert!(capsule_image_is_locked(&record));
         Fs2FileExt::unlock(&lock).unwrap();
         assert!(!capsule_image_is_locked(&record));
+    }
+
+    #[test]
+    fn ui_never_bypasses_bundled_runtime_overrides() {
+        let source = include_str!("ui.rs");
+        let system_only_alias_call = ["Capabilities", "::detect()"].concat();
+        let system_only_report_call = ["CapabilityReport", "::detect()"].concat();
+
+        assert!(!source.contains(&system_only_alias_call));
+        assert!(!source.contains(&system_only_report_call));
     }
 }
