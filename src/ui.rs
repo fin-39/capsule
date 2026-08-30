@@ -1,6 +1,8 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
+use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
@@ -18,6 +20,7 @@ use capsule::store::LibraryStore;
 use capsule::{APP_NAME, backend};
 use fs2::FileExt as Fs2FileExt;
 use gtk::{Align, Orientation, SelectionMode, gio};
+use rustix::fs::{FileType, Mode, OFlags, fchmod, fstat, open};
 use uuid::Uuid;
 
 pub fn install_style() {
@@ -325,6 +328,11 @@ impl UiState {
             .icon_name("emblem-system-symbolic")
             .tooltip_text("Settings")
             .build();
+        let logs = gtk::Button::builder()
+            .icon_name("text-x-generic-symbolic")
+            .tooltip_text("Launch log")
+            .sensitive(self.paths.launch_log_path(record.id).is_file())
+            .build();
         let remove = gtk::Button::builder()
             .icon_name("user-trash-symbolic")
             .tooltip_text(if record.storage.is_managed_image() {
@@ -336,6 +344,7 @@ impl UiState {
             .build();
 
         actions.append(&play);
+        actions.append(&logs);
         actions.append(&settings);
         actions.append(&remove);
         identity.append(&actions);
@@ -344,6 +353,10 @@ impl UiState {
         {
             let state = Rc::clone(self);
             play.connect_clicked(move |_| state.launch(id));
+        }
+        {
+            let state = Rc::clone(self);
+            logs.connect_clicked(move |_| state.show_launch_log(id));
         }
         {
             let state = Rc::clone(self);
@@ -1027,6 +1040,13 @@ impl UiState {
         };
         let mut supervisor = Command::new(executable);
         supervisor.arg("--supervise").arg(record.id.to_string());
+        let log_path = self.paths.launch_log_path(id);
+        if let Err(error) =
+            redirect_supervisor_output(&mut supervisor, &log_path, &record, "Game launch")
+        {
+            self.toast(&format!("Could not create launch log: {error}"));
+            return;
+        }
         let niri_windows_before = niri_gamescope_window_ids();
         self.launching.borrow_mut().insert(id);
         self.refresh();
@@ -1041,32 +1061,52 @@ impl UiState {
                 });
                 let state = Rc::clone(self);
                 let name = record.name;
+                let log_path = log_path.clone();
                 gtk::glib::timeout_add_local(Duration::from_millis(500), move || {
                     match child.try_wait() {
                         Ok(Some(status)) => {
+                            append_launch_log(
+                                &log_path,
+                                &if status.success() {
+                                    format!("Capsule UI: supervisor exited with {status}")
+                                } else {
+                                    format!("Capsule UI ERROR: supervisor exited with {status}")
+                                },
+                            );
                             state.launching.borrow_mut().remove(&id);
                             state.refresh();
                             if status.success() {
                                 state.toast(&format!("{name} stopped"));
                             } else {
                                 state.toast(&format!("{name} was blocked or exited with an error"));
+                                state.show_launch_log(id);
                             }
                             gtk::glib::ControlFlow::Break
                         }
                         Ok(None) => gtk::glib::ControlFlow::Continue,
                         Err(error) => {
+                            append_launch_log(
+                                &log_path,
+                                &format!("Capsule UI: could not monitor supervisor: {error}"),
+                            );
                             state.launching.borrow_mut().remove(&id);
                             state.refresh();
                             state.toast(&format!("Could not monitor {name}: {error}"));
+                            state.show_launch_log(id);
                             gtk::glib::ControlFlow::Break
                         }
                     }
                 });
             }
             Err(error) => {
+                append_launch_log(
+                    &log_path,
+                    &format!("Capsule UI: could not start supervisor: {error}"),
+                );
                 self.launching.borrow_mut().remove(&id);
                 self.refresh();
                 self.toast(&format!("Could not start supervisor: {error}"));
+                self.show_launch_log(id);
             }
         }
     }
@@ -1108,6 +1148,18 @@ impl UiState {
 
         let mut supervisor = Command::new(executable);
         supervisor.arg(action).arg(id.to_string());
+        let log_path = self.paths.launch_log_path(id);
+        let action_label = match action {
+            "--install-steam" => "Install or repair Steam",
+            "--open-steam" => "Open Steam",
+            _ => "Steam action",
+        };
+        if let Err(error) =
+            redirect_supervisor_output(&mut supervisor, &log_path, &record, action_label)
+        {
+            self.toast(&format!("Could not create launch log: {error}"));
+            return;
+        }
         let niri_windows_before = niri_gamescope_window_ids();
         install_button.set_sensitive(false);
         open_button.set_sensitive(false);
@@ -1122,9 +1174,18 @@ impl UiState {
                 let install = install_button.clone();
                 let open = open_button.clone();
                 let name = record.name;
+                let log_path = log_path.clone();
                 gtk::glib::timeout_add_local(Duration::from_millis(500), move || {
                     match child.try_wait() {
                         Ok(Some(status)) => {
+                            append_launch_log(
+                                &log_path,
+                                &if status.success() {
+                                    format!("Capsule UI: supervisor exited with {status}")
+                                } else {
+                                    format!("Capsule UI ERROR: supervisor exited with {status}")
+                                },
+                            );
                             state.launching.borrow_mut().remove(&id);
                             state.refresh();
                             install.set_sensitive(true);
@@ -1135,27 +1196,38 @@ impl UiState {
                                 state.toast(&format!(
                                     "Steam action for {name} was blocked or exited with an error"
                                 ));
+                                state.show_launch_log(id);
                             }
                             gtk::glib::ControlFlow::Break
                         }
                         Ok(None) => gtk::glib::ControlFlow::Continue,
                         Err(error) => {
+                            append_launch_log(
+                                &log_path,
+                                &format!("Capsule UI: could not monitor Steam: {error}"),
+                            );
                             state.launching.borrow_mut().remove(&id);
                             state.refresh();
                             install.set_sensitive(true);
                             open.set_sensitive(true);
                             state.toast(&format!("Could not monitor Steam: {error}"));
+                            state.show_launch_log(id);
                             gtk::glib::ControlFlow::Break
                         }
                     }
                 });
             }
             Err(error) => {
+                append_launch_log(
+                    &log_path,
+                    &format!("Capsule UI: could not start Steam action: {error}"),
+                );
                 self.launching.borrow_mut().remove(&id);
                 self.refresh();
                 install_button.set_sensitive(true);
                 open_button.set_sensitive(true);
                 self.toast(&format!("Could not start Steam action: {error}"));
+                self.show_launch_log(id);
             }
         }
     }
@@ -1175,6 +1247,101 @@ impl UiState {
                 self.back_button.set_sensitive(true);
                 self.toast(&format!("Could not add capsule to library: {error}"));
             }
+        }
+    }
+
+    fn show_launch_log(self: &Rc<Self>, id: Uuid) {
+        let Some(record) = self
+            .records
+            .borrow()
+            .iter()
+            .find(|record| record.id == id)
+            .cloned()
+        else {
+            self.toast("Capsule is no longer in the library");
+            return;
+        };
+        let log_path = self.paths.launch_log_path(id);
+
+        let tag_table = gtk::TextTagTable::new();
+        let error_tag = gtk::TextTag::builder()
+            .name("launch-error")
+            .foreground("#ff7b63")
+            .weight(700)
+            .build();
+        tag_table.add(&error_tag);
+        let buffer = gtk::TextBuffer::new(Some(&tag_table));
+        let text = gtk::TextView::builder()
+            .buffer(&buffer)
+            .editable(false)
+            .cursor_visible(false)
+            .monospace(true)
+            .wrap_mode(gtk::WrapMode::None)
+            .left_margin(12)
+            .right_margin(12)
+            .top_margin(12)
+            .bottom_margin(12)
+            .build();
+
+        let summary = gtk::Label::builder()
+            .xalign(0.0)
+            .hexpand(true)
+            .selectable(true)
+            .build();
+        summary.add_css_class("caption");
+        summary.add_css_class("muted");
+        let reload = gtk::Button::builder()
+            .label("Reload")
+            .tooltip_text("Read new output from the running action")
+            .build();
+        let copy = gtk::Button::builder()
+            .label("Copy")
+            .tooltip_text("Copy the visible log")
+            .build();
+
+        let controls = gtk::Box::new(Orientation::Horizontal, 8);
+        controls.set_margin_top(16);
+        controls.set_margin_bottom(12);
+        controls.set_margin_start(16);
+        controls.set_margin_end(16);
+        controls.append(&summary);
+        controls.append(&reload);
+        controls.append(&copy);
+
+        let body = gtk::Box::new(Orientation::Vertical, 0);
+        body.append(&controls);
+        body.append(
+            &gtk::ScrolledWindow::builder()
+                .hscrollbar_policy(gtk::PolicyType::Automatic)
+                .vscrollbar_policy(gtk::PolicyType::Automatic)
+                .vexpand(true)
+                .child(&text)
+                .build(),
+        );
+
+        populate_launch_log(&buffer, &summary, &log_path);
+        self.show_form(&body, &record.name, "Launch Log");
+
+        {
+            let buffer = buffer.clone();
+            let summary = summary.clone();
+            let log_path = log_path.clone();
+            reload.connect_clicked(move |_| {
+                populate_launch_log(&buffer, &summary, &log_path);
+            });
+        }
+        {
+            let state = Rc::clone(self);
+            copy.connect_clicked(move |_| {
+                let (start, end) = buffer.bounds();
+                let visible_log = buffer.text(&start, &end, true);
+                if let Some(display) = gtk::gdk::Display::default() {
+                    display.clipboard().set_text(&visible_log);
+                    state.toast("Launch log copied");
+                } else {
+                    state.toast("Clipboard is unavailable");
+                }
+            });
         }
     }
 
@@ -1699,6 +1866,11 @@ impl UiState {
                 {
                     eprintln!("Could not remove legacy cached Capsule icon: {error}");
                 }
+                if let Err(error) = std::fs::remove_file(self.paths.launch_log_path(id))
+                    && error.kind() != std::io::ErrorKind::NotFound
+                {
+                    eprintln!("Could not remove cached Capsule launch log: {error}");
+                }
                 self.refresh();
                 self.toast(if record.storage.is_managed_image() {
                     "Capsule moved to Trash"
@@ -1764,18 +1936,221 @@ fn niri_gamescope_window_ids() -> Option<HashSet<u64>> {
     )
 }
 
+const MAX_VISIBLE_LAUNCH_LOG_BYTES: u64 = 4 * 1024 * 1024;
+
+fn redirect_supervisor_output(
+    command: &mut Command,
+    path: &Path,
+    record: &CapsuleRecord,
+    action: &str,
+) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut log = open_regular_launch_log(path, OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC)?;
+    let started = gtk::glib::DateTime::now_local()
+        .and_then(|date| date.format_iso8601())
+        .map(|date| date.to_string())
+        .unwrap_or_else(|_| "unknown local time".to_owned());
+    writeln!(log, "Capsule launch log")?;
+    writeln!(log, "Game: {}", record.name)?;
+    writeln!(log, "Action: {action}")?;
+    writeln!(log, "Started: {started}")?;
+    writeln!(log, "{}", "-".repeat(72))?;
+    log.flush()?;
+
+    let error_log = log.try_clone()?;
+    command.stdout(Stdio::from(log));
+    command.stderr(Stdio::from(error_log));
+    Ok(())
+}
+
+fn append_launch_log(path: &Path, message: &str) {
+    let result = open_regular_launch_log(path, OFlags::WRONLY | OFlags::CREATE | OFlags::APPEND)
+        .and_then(|mut log| writeln!(log, "\n{message}"));
+    if let Err(error) = result {
+        eprintln!(
+            "Could not update Capsule launch log {}: {error}",
+            path.display()
+        );
+    }
+}
+
+fn open_regular_launch_log(path: &Path, flags: OFlags) -> io::Result<File> {
+    let descriptor = open(
+        path,
+        flags | OFlags::CLOEXEC | OFlags::NOFOLLOW | OFlags::NONBLOCK,
+        Mode::RUSR | Mode::WUSR,
+    )?;
+    let metadata = fstat(&descriptor)?;
+    if FileType::from_raw_mode(metadata.st_mode) != FileType::RegularFile {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("launch log is not a regular file: {}", path.display()),
+        ));
+    }
+    fchmod(&descriptor, Mode::RUSR | Mode::WUSR)?;
+    Ok(File::from(descriptor))
+}
+
+fn populate_launch_log(buffer: &gtk::TextBuffer, summary: &gtk::Label, path: &Path) {
+    let content = match read_visible_launch_log(path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            buffer.set_text("No launch has been recorded for this capsule yet.\n");
+            summary.set_label("No launch log yet");
+            return;
+        }
+        Err(error) => {
+            buffer.set_text(&format!("Could not read the launch log: {error}\n"));
+            summary.set_label("Launch log unavailable");
+            return;
+        }
+    };
+
+    buffer.set_text("");
+    let error_tag = buffer.tag_table().lookup("launch-error");
+    let mut error_lines = 0_usize;
+    let mut end = buffer.end_iter();
+    for line in content.text.split_inclusive('\n') {
+        if log_line_is_error(line) {
+            error_lines += 1;
+            if let Some(tag) = error_tag.as_ref() {
+                buffer.insert_with_tags(&mut end, line, &[tag]);
+                continue;
+            }
+        }
+        buffer.insert(&mut end, line);
+    }
+
+    let errors = match error_lines {
+        0 => "No likely error lines".to_owned(),
+        1 => "1 likely error line".to_owned(),
+        count => format!("{count} likely error lines"),
+    };
+    summary.set_label(&if content.truncated {
+        format!("{errors} · showing the last 4 MiB")
+    } else {
+        errors
+    });
+}
+
+struct VisibleLaunchLog {
+    text: String,
+    truncated: bool,
+}
+
+fn read_visible_launch_log(path: &Path) -> std::io::Result<VisibleLaunchLog> {
+    let mut file = open_regular_launch_log(path, OFlags::RDONLY)?;
+    let length = file.metadata()?.len();
+    let truncated = length > MAX_VISIBLE_LAUNCH_LOG_BYTES;
+    if truncated {
+        file.seek(SeekFrom::End(-(MAX_VISIBLE_LAUNCH_LOG_BYTES as i64)))?;
+    }
+    let mut bytes = Vec::with_capacity(length.min(MAX_VISIBLE_LAUNCH_LOG_BYTES) as usize);
+    file.read_to_end(&mut bytes)?;
+    let mut text = sanitize_launch_log(&bytes);
+    if truncated {
+        if let Some(first_line_end) = text.find('\n') {
+            text.drain(..=first_line_end);
+        }
+        text.insert_str(0, "[… earlier output omitted …]\n");
+    }
+    Ok(VisibleLaunchLog { text, truncated })
+}
+
+fn sanitize_launch_log(raw: &[u8]) -> String {
+    let mut clean = Vec::with_capacity(raw.len());
+    let mut index = 0;
+    while index < raw.len() {
+        if raw[index] == 0x1b && raw.get(index + 1) == Some(&b'[') {
+            index += 2;
+            while index < raw.len() {
+                let byte = raw[index];
+                index += 1;
+                if (0x40..=0x7e).contains(&byte) {
+                    break;
+                }
+            }
+            continue;
+        }
+        if raw[index] != b'\r' {
+            clean.push(raw[index]);
+        }
+        index += 1;
+    }
+    String::from_utf8_lossy(&clean).into_owned()
+}
+
+fn log_line_is_error(line: &str) -> bool {
+    let line = line.to_ascii_lowercase();
+    [
+        "error",
+        "failed",
+        "failure",
+        "fatal",
+        "blocked",
+        "panic",
+        "traceback",
+        ":err:",
+        "err:",
+        "could not",
+        "cannot start",
+        "no such file or directory",
+    ]
+    .iter()
+    .any(|marker| line.contains(marker))
+}
+
 /// Keep an AppImage-backed supervisor alive independently from the library UI.
 /// AppImage exposes the outer one-file executable through `APPIMAGE`; spawning
 /// that file gives every long-running game action its own mounted runtime. A
 /// normal source or system installation falls back to the current executable.
 fn supervisor_executable() -> std::io::Result<PathBuf> {
-    if let Some(path) = std::env::var_os("APPIMAGE").filter(|value| !value.is_empty()) {
-        let path = PathBuf::from(path);
-        if path.is_absolute() && std::fs::metadata(&path).is_ok_and(|metadata| metadata.is_file()) {
+    resolve_supervisor_executable(
+        std::env::var_os("APPIMAGE")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from),
+        std::env::current_exe().ok(),
+        PathBuf::from("/proc/self/exe"),
+    )
+}
+
+fn resolve_supervisor_executable(
+    appimage: Option<PathBuf>,
+    current_executable: Option<PathBuf>,
+    process_image: PathBuf,
+) -> std::io::Result<PathBuf> {
+    if let Some(path) = appimage {
+        if usable_supervisor_executable(&path) {
             return Ok(path);
         }
     }
-    std::env::current_exe()
+    if let Some(path) = current_executable {
+        if usable_supervisor_executable(&path) {
+            return Ok(path);
+        }
+    }
+
+    // Package upgrades and `cargo build` can atomically replace the executable
+    // while an older UI process is still open. Linux keeps that process image
+    // reachable through /proc/self/exe even when current_exe() reports a path
+    // ending in " (deleted)". Execute the same image so the detached
+    // supervisor always matches the UI that requested it.
+    if usable_supervisor_executable(&process_image) {
+        return Ok(process_image);
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        "the running Capsule executable is unavailable",
+    ))
+}
+
+fn usable_supervisor_executable(path: &Path) -> bool {
+    path.is_absolute()
+        && std::fs::metadata(path)
+            .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
 }
 
 fn focus_new_niri_gamescope_window(previous: Option<HashSet<u64>>, expected_title: String) {
@@ -2413,5 +2788,89 @@ mod tests {
 
         assert!(!source.contains(&system_only_alias_call));
         assert!(!source.contains(&system_only_report_call));
+    }
+
+    #[test]
+    fn deleted_running_executable_falls_back_to_proc_process_image() {
+        let temp = tempfile::tempdir().unwrap();
+        let process_image = temp.path().join("process-image");
+        std::fs::write(&process_image, b"capsule").unwrap();
+        std::fs::set_permissions(&process_image, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        let selected = resolve_supervisor_executable(
+            None,
+            Some(temp.path().join("capsule (deleted)")),
+            process_image.clone(),
+        )
+        .unwrap();
+
+        assert_eq!(selected, process_image);
+    }
+
+    #[test]
+    fn launch_log_capture_keeps_stdout_stderr_and_private_metadata() {
+        let temp = tempfile::tempdir().unwrap();
+        let image = temp.path().join("game.capsule");
+        std::fs::write(&image, b"capsule").unwrap();
+        let record = CapsuleRecord::new(
+            "Game",
+            StorageKind::Image { path: image },
+            "drive_c/Game/game.exe",
+            RunnerKind::Wine,
+        );
+        let log = temp.path().join("launch.log");
+        let mut command = Command::new("/bin/sh");
+        command.args([
+            "-c",
+            "printf 'standard output\\n'; printf 'fatal error\\n' >&2",
+        ]);
+
+        redirect_supervisor_output(&mut command, &log, &record, "Game launch").unwrap();
+        assert!(command.status().unwrap().success());
+        append_launch_log(
+            &log,
+            "Capsule UI ERROR: supervisor exited with exit status: 1",
+        );
+        let visible = read_visible_launch_log(&log).unwrap();
+
+        assert!(visible.text.contains("Game: Game"));
+        assert!(visible.text.contains("Action: Game launch"));
+        assert!(visible.text.contains("standard output"));
+        assert!(visible.text.contains("fatal error"));
+        assert!(visible.text.contains("Capsule UI ERROR"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            assert_eq!(
+                std::fs::metadata(log).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+    }
+
+    #[test]
+    fn launch_log_display_removes_terminal_controls_and_finds_failures() {
+        let clean = sanitize_launch_log(b"\x1b[31mERROR\x1b[0m: missing\r\nok\n");
+
+        assert_eq!(clean, "ERROR: missing\nok\n");
+        assert!(log_line_is_error("0030:err:winediag:nodrv_CreateWindow"));
+        assert!(log_line_is_error("Capsule launch failed: helper missing"));
+        assert!(!log_line_is_error("info: Vulkan device initialized"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn launch_log_capture_refuses_symbolic_links() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("unrelated.txt");
+        let link = temp.path().join("launch.log");
+        std::fs::write(&target, b"keep me").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let error = open_regular_launch_log(&link, OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC)
+            .unwrap_err();
+
+        assert_eq!(error.raw_os_error(), Some(40));
+        assert_eq!(std::fs::read(target).unwrap(), b"keep me");
     }
 }

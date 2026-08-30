@@ -5,7 +5,17 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 appdir=$(CDPATH= cd -- "$script_dir/../../.." && pwd)
 glibc_dir=$appdir/usr/lib/capsule/glibc
 runtime_dir=$script_dir/sandwine-runtime
+runtime_executable=$runtime_dir/sandwine-runtime
+
+# An onedir PyInstaller bootloader normally restarts itself once after adding
+# its private directory to LD_LIBRARY_PATH. That restart would use the host's
+# ELF interpreter and lose Capsule's newer isolated glibc on older systems.
+# The wrapper has already supplied the complete search path to the matching
+# bundled interpreter, so enter PyInstaller's documented post-restart process
+# level directly and keep all Python extension modules on that interpreter.
+export _PYI_ARCHIVE_FILE=$runtime_executable
+export _PYI_PARENT_PROCESS_LEVEL=-1
 
 exec "$glibc_dir/ld-linux-x86-64.so.2" \
     --library-path "$glibc_dir:$runtime_dir/_internal:$appdir/usr/lib" \
-    "$runtime_dir/sandwine-runtime" "$@"
+    "$runtime_executable" "$@"

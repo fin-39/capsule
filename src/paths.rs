@@ -10,6 +10,7 @@ pub struct AppPaths {
     pub capsules_dir: PathBuf,
     pub cache_dir: PathBuf,
     pub icons_dir: PathBuf,
+    pub logs_dir: PathBuf,
 }
 
 impl AppPaths {
@@ -53,6 +54,7 @@ impl AppPaths {
             library_file: data_dir.join("library.json"),
             capsules_dir: data_dir.join("capsules"),
             icons_dir: cache_dir.join("icons"),
+            logs_dir: cache_dir.join("logs"),
             cache_dir,
             data_dir,
         }
@@ -60,7 +62,8 @@ impl AppPaths {
 
     pub fn ensure(&self) -> Result<(), std::io::Error> {
         std::fs::create_dir_all(&self.capsules_dir)?;
-        std::fs::create_dir_all(&self.icons_dir)
+        std::fs::create_dir_all(&self.icons_dir)?;
+        std::fs::create_dir_all(&self.logs_dir)
     }
 
     pub fn capsule_path(&self, name: &str) -> PathBuf {
@@ -75,6 +78,10 @@ impl AppPaths {
 
     pub fn legacy_icon_path(&self, id: uuid::Uuid) -> PathBuf {
         self.icons_dir.join(format!("{}.ico", id.simple()))
+    }
+
+    pub fn launch_log_path(&self, id: uuid::Uuid) -> PathBuf {
+        self.logs_dir.join(format!("{}.log", id.simple()))
     }
 }
 
@@ -141,5 +148,16 @@ mod tests {
         assert!(is_safe_relative(Path::new("drive_c/game.exe")));
         assert!(!is_safe_relative(Path::new("../game.exe")));
         assert!(!is_safe_relative(Path::new("/game.exe")));
+    }
+
+    #[test]
+    fn launch_logs_use_stable_uuid_file_names() {
+        let paths = AppPaths::under("/tmp/capsule-path-test");
+        let id = uuid::Uuid::parse_str("03541d61-eebe-4325-b121-5b0b8aa9338a").unwrap();
+
+        assert_eq!(
+            paths.launch_log_path(id),
+            paths.logs_dir.join("03541d61eebe4325b1215b0b8aa9338a.log")
+        );
     }
 }
