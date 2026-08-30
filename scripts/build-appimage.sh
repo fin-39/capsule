@@ -17,9 +17,19 @@ require_command() {
     fi
 }
 
-for command_name in cargo file ldd install python readelf; do
+for command_name in cargo file ldd install nice python readelf; do
     require_command "$command_name"
 done
+
+# Keep local release builds responsive by default. Builders can explicitly
+# raise this for dedicated machines and CI runners.
+build_jobs=${CAPSULE_BUILD_JOBS:-2}
+case $build_jobs in
+    ''|*[!0-9]*|0)
+        echo "CAPSULE_BUILD_JOBS must be a positive integer" >&2
+        exit 2
+        ;;
+esac
 
 appimagetool=${APPIMAGETOOL:-}
 if [[ -z $appimagetool ]]; then
@@ -55,7 +65,7 @@ mkdir -p -- \
     "$appdir/usr/share/capsule" \
     "$dist_dir"
 
-cargo build --locked --release --bins --lib
+nice -n 10 cargo build --locked --release --bins --lib --jobs "$build_jobs"
 
 install -Dm755 target/release/capsule "$appdir/usr/bin/capsule"
 install -Dm755 target/release/capsule-network "$appdir/usr/libexec/capsule/capsule-network"
@@ -322,12 +332,14 @@ fi
 chmod 0755 "$appdir/AppRun"
 rm -f -- "$output"
 ARCH=x86_64 VERSION="$version" APPIMAGE_EXTRACT_AND_RUN=1 \
-    "$appimagetool" \
+    nice -n 10 "$appimagetool" \
     --comp xz \
     --mksquashfs-opt=-b \
     --mksquashfs-opt=1M \
     --mksquashfs-opt=-Xbcj \
     --mksquashfs-opt=x86 \
+    --mksquashfs-opt=-processors \
+    --mksquashfs-opt="$build_jobs" \
     "$appdir" "$output"
 chmod 0755 "$output"
 APPIMAGE_EXTRACT_AND_RUN=1 "$output" --doctor
