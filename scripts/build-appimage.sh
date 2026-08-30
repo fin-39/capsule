@@ -102,6 +102,14 @@ for tool in \
     copy_tool "$tool"
 done
 
+# Gamescope loads additional bundled libraries after startup. Running it via
+# the build host's matching, isolated glibc prevents those modules from being
+# combined with an older host libm at launch time.
+mv -- "$appdir/usr/bin/gamescope" \
+    "$appdir/usr/libexec/capsule/gamescope-runtime"
+install -Dm755 packaging/appimage/gamescope-wrapper \
+    "$appdir/usr/bin/gamescope"
+
 if [[ ! -d /usr/lib/wine || ! -f /usr/share/wine/wine.inf ]]; then
     echo "The build host's Wine runtime is incomplete" >&2
     exit 2

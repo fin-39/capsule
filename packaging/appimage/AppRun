@@ -49,6 +49,10 @@ export CAPSULE_COMPAT_FONT_DIR="$runtime_share/capsule/fonts/windows-compat"
 export CAPSULE_DXVK_DIR="$runtime_share/capsule/dxvk/windows-compat"
 
 if [ "${1:-}" = "--doctor" ]; then
+    if ! "$runtime_bin/gamescope" --version >/dev/null; then
+        echo "Capsule runtime doctor: bundled Gamescope cannot start" >&2
+        exit 1
+    fi
     if ! "$runtime_bin/systemd-run" --version >/dev/null; then
         echo "Capsule runtime doctor: bundled systemd-run cannot start" >&2
         exit 1
