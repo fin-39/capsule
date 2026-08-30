@@ -114,6 +114,9 @@ cp -a /usr/share/wine "$appdir/usr/share/wine"
 rm -f -- \
     "$appdir/usr/lib/wine/x86_64-unix/gphoto2.so" \
     "$appdir/usr/lib/wine/x86_64-unix/sane.so"
+# Distribution Wine packages also contain static import libraries for compiling
+# Windows software. Wine and packaged games never load these at runtime.
+find "$appdir/usr/lib/wine" -type f -name '*.a' -delete
 
 if [[ ! -x /usr/lib/7zip/7z || ! -f /usr/lib/7zip/7z.so ]]; then
     echo "The full 7-Zip runtime is missing from /usr/lib/7zip" >&2
@@ -220,6 +223,11 @@ copy_library() {
     local relative=${source#/}
     local destination=$appdir/$relative
     case $source in
+        "$appdir"/*)
+            # ldd may resolve an already-bundled dependency through $ORIGIN.
+            # Do not mirror the AppDir's absolute build path back into itself.
+            return
+            ;;
         /usr/lib/libc.so.*|/usr/lib/libm.so.*|/usr/lib/libdl.so.*|\
         /usr/lib/libpthread.so.*|/usr/lib/librt.so.*|/usr/lib64/ld-linux-*|\
         /lib64/ld-linux-*)
@@ -258,6 +266,14 @@ while (( queue_index < ${#elf_queue[@]} )); do
     )
 done
 
+unexpected_root_directory=$(
+    find "$appdir" -mindepth 1 -maxdepth 1 -type d ! -name usr -print -quit
+)
+if [[ -n $unexpected_root_directory ]]; then
+    echo "Unexpected host path copied into the AppDir: ${unexpected_root_directory#"$appdir"/}" >&2
+    exit 2
+fi
+
 if command -v pacman >/dev/null 2>&1; then
     package_inventory=$appdir/usr/share/licenses/PACKAGE_VERSIONS.txt
     : > "$package_inventory"
@@ -277,7 +293,13 @@ fi
 chmod 0755 "$appdir/AppRun"
 rm -f -- "$output"
 ARCH=x86_64 VERSION="$version" APPIMAGE_EXTRACT_AND_RUN=1 \
-    "$appimagetool" "$appdir" "$output"
+    "$appimagetool" \
+    --comp xz \
+    --mksquashfs-opt=-b \
+    --mksquashfs-opt=1M \
+    --mksquashfs-opt=-Xbcj \
+    --mksquashfs-opt=x86 \
+    "$appdir" "$output"
 chmod 0755 "$output"
 APPIMAGE_EXTRACT_AND_RUN=1 "$output" --doctor
 sha256sum "$output" > "$output.sha256"
