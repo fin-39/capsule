@@ -5,7 +5,7 @@ use std::io;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::process::ExitStatus;
+use std::process::{ExitStatus, Stdio};
 
 use crate::backend::capabilities::{Capability, CapabilityReport};
 use crate::backend::validate_host_absolute;
@@ -267,12 +267,9 @@ impl ImageMountPlan {
         fs::set_permissions(&self.mount_point, fs::Permissions::from_mode(0o700))
             .map_err(|source| io_error(&self.mount_point, source))?;
 
-        let status = self
-            .mount
-            .execute()
-            .map_err(|source| io_error(&self.mount.program, source))?;
+        let (status, diagnostic) = execute_helper(&self.mount)?;
         if !status.success() {
-            return Err(StorageError::MountFailed(status));
+            return Err(StorageError::MountFailed { status, diagnostic });
         }
         if !is_mountpoint(&self.mount_point)? {
             return Err(StorageError::MountVerificationFailed(
@@ -283,12 +280,9 @@ impl ImageMountPlan {
     }
 
     pub fn execute_unmount(&self) -> Result<(), StorageError> {
-        let status = self
-            .unmount
-            .execute()
-            .map_err(|source| io_error(&self.unmount.program, source))?;
+        let (status, diagnostic) = execute_helper(&self.unmount)?;
         if !status.success() {
-            return Err(StorageError::UnmountFailed(status));
+            return Err(StorageError::UnmountFailed { status, diagnostic });
         }
         if is_mountpoint(&self.mount_point)? {
             return Err(StorageError::UnmountVerificationFailed(
@@ -297,6 +291,29 @@ impl ImageMountPlan {
         }
         Ok(())
     }
+}
+
+fn execute_helper(command: &CommandSpec) -> Result<(ExitStatus, String), StorageError> {
+    let output = command
+        .to_command()
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|source| io_error(&command.program, source))?;
+    Ok((output.status, bounded_diagnostic(&output.stderr)))
+}
+
+fn bounded_diagnostic(stderr: &[u8]) -> String {
+    const LIMIT: usize = 4 * 1024;
+    let visible = &stderr[..stderr.len().min(LIMIT)];
+    let mut diagnostic = String::from_utf8_lossy(visible).trim().to_owned();
+    if diagnostic.is_empty() {
+        diagnostic = "no diagnostic output".into();
+    } else if stderr.len() > LIMIT {
+        diagnostic.push_str("…");
+    }
+    diagnostic
 }
 
 fn is_mountpoint(path: &Path) -> Result<bool, StorageError> {
@@ -370,12 +387,18 @@ pub enum StorageError {
     MountPointNotEmpty(PathBuf),
     #[error("filesystem formatter exited unsuccessfully: {0}")]
     FormatterFailed(ExitStatus),
-    #[error("filesystem mount exited unsuccessfully: {0}")]
-    MountFailed(ExitStatus),
+    #[error("filesystem mount exited unsuccessfully ({status}): {diagnostic}")]
+    MountFailed {
+        status: ExitStatus,
+        diagnostic: String,
+    },
     #[error("filesystem helper returned success but no mount was found at {0:?}")]
     MountVerificationFailed(PathBuf),
-    #[error("filesystem unmount exited unsuccessfully: {0}")]
-    UnmountFailed(ExitStatus),
+    #[error("filesystem unmount exited unsuccessfully ({status}): {diagnostic}")]
+    UnmountFailed {
+        status: ExitStatus,
+        diagnostic: String,
+    },
     #[error("filesystem helper returned success but the mount is still present at {0:?}")]
     UnmountVerificationFailed(PathBuf),
     #[error("failed to access {path:?}: {source}")]
@@ -475,6 +498,15 @@ mod tests {
             ImageCreatePlan::with_formatter("relative.capsule", 64, "/usr/bin/mkfs.ext4").is_err()
         );
         assert!(resolve_inside_capsule(Path::new("/mnt/game"), Path::new("../secret")).is_err());
+    }
+
+    #[test]
+    fn helper_diagnostics_are_bounded_and_never_empty() {
+        assert_eq!(bounded_diagnostic(b"\n"), "no diagnostic output");
+        let oversized = vec![b'x'; 5 * 1024];
+        let diagnostic = bounded_diagnostic(&oversized);
+        assert!(diagnostic.ends_with('…'));
+        assert!(diagnostic.len() <= 4 * 1024 + '…'.len_utf8());
     }
 
     #[test]

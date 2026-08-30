@@ -97,7 +97,7 @@ copy_tool() {
 
 for tool in \
     wine wineserver wineboot winepath \
-    gamescope Xwayland bwrap fuse2fs fusermount3 mkfs.ext4 \
+    gamescope Xwayland bwrap fuse2fs mkfs.ext4 \
     slirp4netns nft wl-paste curl magick timeout prlimit systemd-run systemctl script; do
     copy_tool "$tool"
 done
@@ -279,6 +279,7 @@ rm -f -- "$output"
 ARCH=x86_64 VERSION="$version" APPIMAGE_EXTRACT_AND_RUN=1 \
     "$appimagetool" "$appdir" "$output"
 chmod 0755 "$output"
+APPIMAGE_EXTRACT_AND_RUN=1 "$output" --doctor
 sha256sum "$output" > "$output.sha256"
 
 echo "Built $output"

@@ -79,7 +79,9 @@ supported host therefore still needs:
 - a Wayland session, tested with KDE Plasma 6 and Niri (other standard Wayland
   compositors should work as well);
 - working host GPU drivers and `/dev/dri`;
-- kernel FUSE support with an accessible `/dev/fuse` device;
+- kernel FUSE support with an accessible `/dev/fuse` device and the host's
+  privileged `fusermount3` helper (setuid privileges cannot safely function
+  from a `nosuid` AppImage);
 - PipeWire/Pulse services only when audio is enabled.
 
 Those are host facilities, not application packages Capsule can safely bundle.
