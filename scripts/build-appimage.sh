@@ -107,7 +107,7 @@ copy_tool() {
 
 for tool in \
     wine wineserver wineboot winepath \
-    gamescope Xwayland bwrap fuse2fs mkfs.ext4 \
+    gamescope gamescopereaper Xwayland bwrap fuse2fs mkfs.ext4 \
     slirp4netns nft wl-paste curl magick timeout prlimit systemd-run systemctl script; do
     copy_tool "$tool"
 done
@@ -119,6 +119,10 @@ mv -- "$appdir/usr/bin/gamescope" \
     "$appdir/usr/libexec/capsule/gamescope-runtime"
 install -Dm755 packaging/appimage/gamescope-wrapper \
     "$appdir/usr/bin/gamescope"
+mv -- "$appdir/usr/bin/gamescopereaper" \
+    "$appdir/usr/libexec/capsule/gamescopereaper-runtime"
+install -Dm755 packaging/appimage/gamescopereaper-wrapper \
+    "$appdir/usr/bin/gamescopereaper"
 
 if [[ ! -d /usr/lib/wine || ! -f /usr/share/wine/wine.inf ]]; then
     echo "The build host's Wine runtime is incomplete" >&2

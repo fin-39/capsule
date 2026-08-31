@@ -53,6 +53,10 @@ if [ "${1:-}" = "--doctor" ]; then
         echo "Capsule runtime doctor: bundled Gamescope cannot start" >&2
         exit 1
     fi
+    if ! "$runtime_bin/gamescopereaper" -- /usr/bin/true >/dev/null; then
+        echo "Capsule runtime doctor: bundled gamescopereaper cannot start" >&2
+        exit 1
+    fi
     if ! "$runtime_bin/systemd-run" --version >/dev/null; then
         echo "Capsule runtime doctor: bundled systemd-run cannot start" >&2
         exit 1
