@@ -376,6 +376,9 @@ ARCH=x86_64 VERSION="$version" APPIMAGE_EXTRACT_AND_RUN=1 \
     "$appdir" "$output"
 chmod 0755 "$output"
 APPIMAGE_EXTRACT_AND_RUN=1 "$output" --doctor
-sha256sum "$output" > "$output.sha256"
+(
+    cd -- "$(dirname -- "$output")"
+    sha256sum "$(basename -- "$output")" > "$(basename -- "$output").sha256"
+)
 
 echo "Built $output"
