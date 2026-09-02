@@ -18,6 +18,8 @@ their runtime libraries from the build environment:
 
 - Wine (LGPL-2.1-or-later)
 - Gamescope (BSD-2-Clause)
+- PipeWire, WirePlumber and the PulseAudio-compatible server (MIT)
+- PulseAudio client libraries (LGPL-2.1-or-later)
 - Xwayland and X.Org libraries (MIT-family licenses)
 - Bubblewrap (LGPL-2.0-or-later)
 - Sandwine (GPL-3.0-or-later)

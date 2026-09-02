@@ -25,6 +25,7 @@ jobs:
           pacman -Syu --noconfirm --needed
           git rust gtk4 libadwaita libx11 pkgconf
           e2fsprogs fuse2fs fuse3 bubblewrap gamescope xorg-xwayland wine
+          pipewire pipewire-pulse wireplumber
           python python-pip 7zip imagemagick
           gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad
           gst-plugins-ugly gst-libav

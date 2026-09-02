@@ -11,12 +11,13 @@ use uuid::Uuid;
 
 use crate::backend::capabilities::detect_with_environment_override;
 use crate::backend::launcher::{
-    LaunchError, build_launch_plan_with, build_launch_plan_with_status,
-    build_wine_prepare_plan_with, build_wine_utility_launch_plan_with_status,
+    LaunchError, build_launch_plan_with_status_and_playback_socket, build_wine_prepare_plan_with,
+    build_wine_utility_launch_plan_with_status_and_playback_socket,
 };
 use crate::backend::steam::{SteamInstallerError, validate_installer};
 use crate::backend::storage::{ImageMountPlan, StorageError};
-use crate::model::{CapsuleRecord, NetworkPolicy, RunnerKind, StorageKind};
+use crate::backend::{audio, audio::PlaybackBrokerError};
+use crate::model::{AudioPolicy, CapsuleRecord, NetworkPolicy, RunnerKind, StorageKind};
 use crate::paths::{AppPaths, PathError, runtime_root};
 use crate::store::{LibraryStore, StoreError};
 
@@ -67,12 +68,26 @@ fn run_with_mode(
     wine_utility: bool,
 ) -> Result<ExitStatus, SupervisorError> {
     let capabilities = detect_with_environment_override()?;
+    let playback_broker = matches!(record.permissions.audio, AudioPolicy::PlaybackOnly)
+        .then(audio::PlaybackBroker::start)
+        .transpose()?;
+    let playback_socket = playback_broker.as_ref().map(audio::PlaybackBroker::socket);
     match &record.storage {
         StorageKind::DirectoryDev { .. } => {
             let plan = if wine_utility {
-                build_wine_utility_launch_plan_with_status(record, &capabilities, None)?
+                build_wine_utility_launch_plan_with_status_and_playback_socket(
+                    record,
+                    &capabilities,
+                    None,
+                    playback_socket,
+                )?
             } else {
-                build_launch_plan_with(record, &capabilities)?
+                build_launch_plan_with_status_and_playback_socket(
+                    record,
+                    &capabilities,
+                    None,
+                    playback_socket,
+                )?
             };
             prepare_wine(record, &capabilities)?;
             emit_warnings(&plan.warnings);
@@ -115,16 +130,18 @@ fn run_with_mode(
             let contained_status = run_dir.join("contained-exit-status");
             let run_result = (|| {
                 let plan = if wine_utility {
-                    build_wine_utility_launch_plan_with_status(
+                    build_wine_utility_launch_plan_with_status_and_playback_socket(
                         &mounted_record,
                         &capabilities,
                         Some(&contained_status),
+                        playback_socket,
                     )?
                 } else {
-                    build_launch_plan_with_status(
+                    build_launch_plan_with_status_and_playback_socket(
                         &mounted_record,
                         &capabilities,
                         Some(&contained_status),
+                        playback_socket,
                     )?
                 };
                 prepare_wine(&mounted_record, &capabilities)?;
@@ -327,6 +344,8 @@ pub enum SupervisorError {
     Store(#[from] StoreError),
     #[error(transparent)]
     Capability(#[from] crate::backend::capabilities::CapabilityError),
+    #[error(transparent)]
+    PlaybackBroker(#[from] PlaybackBrokerError),
     #[error(transparent)]
     Launch(#[from] LaunchError),
     #[error(transparent)]

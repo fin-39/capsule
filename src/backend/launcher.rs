@@ -108,17 +108,48 @@ pub(crate) fn build_launch_plan_with_status(
     build_launch_plan_with_runtime(record, capabilities, trusted_status_path, None, false)
 }
 
+pub(crate) fn build_launch_plan_with_status_and_playback_socket(
+    record: &CapsuleRecord,
+    capabilities: &CapabilityReport,
+    trusted_status_path: Option<&Path>,
+    playback_audio_socket: Option<&Path>,
+) -> Result<LaunchPlan, LaunchError> {
+    build_launch_plan_with_runtime(
+        record,
+        capabilities,
+        trusted_status_path,
+        playback_audio_socket,
+        false,
+    )
+}
+
 /// Build a launch plan for a trusted in-capsule utility such as the Steam
 /// installer or Steam client. These programs commonly replace their initial
 /// process while leaving child processes in the Wine server, so the utility
 /// plan waits for the complete Wine session instead of terminating it when
 /// the first process exits.
+#[cfg(test)]
 pub(crate) fn build_wine_utility_launch_plan_with_status(
     record: &CapsuleRecord,
     capabilities: &CapabilityReport,
     trusted_status_path: Option<&Path>,
 ) -> Result<LaunchPlan, LaunchError> {
     build_launch_plan_with_runtime(record, capabilities, trusted_status_path, None, true)
+}
+
+pub(crate) fn build_wine_utility_launch_plan_with_status_and_playback_socket(
+    record: &CapsuleRecord,
+    capabilities: &CapabilityReport,
+    trusted_status_path: Option<&Path>,
+    playback_audio_socket: Option<&Path>,
+) -> Result<LaunchPlan, LaunchError> {
+    build_launch_plan_with_runtime(
+        record,
+        capabilities,
+        trusted_status_path,
+        playback_audio_socket,
+        true,
+    )
 }
 
 /// Build the display-less Wine prefix preparation command used immediately
