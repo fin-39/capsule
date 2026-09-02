@@ -412,6 +412,14 @@ fn build_launch_plan_with_runtime(
         // system directories, never the desktop user's arbitrary PATH.
         ;
     command = add_systemd_runtime_environment(command, bundled_runtime.as_ref());
+    if wait_for_wine_server {
+        // Steam's installer and Chromium-based client windows can fail to
+        // acquire a presentable Xwayland pixmap on NVIDIA/Optimus systems.
+        // These trusted setup utilities do not need accelerated X11: let
+        // Xwayland use its software path for this transient unit only. Game
+        // launches keep Glamor/DRI3 enabled so DXVK can present efficiently.
+        command = command.arg("--setenv=XWAYLAND_NO_GLAMOR=1");
+    }
     // Keep the host compositor and driver discovery state available to the
     // trusted outer Gamescope process. Driver binaries themselves stay on the
     // host because they must match the running kernel and hardware.
@@ -1996,6 +2004,20 @@ mod tests {
         assert!(utility_plan.command.args.windows(2).any(|arguments| {
             arguments[0] == "--env" && arguments[1] == "CAPSULE_WAIT_FOR_WINESERVER=1"
         }));
+        assert!(
+            utility_plan
+                .command
+                .args
+                .iter()
+                .any(|argument| argument == "--setenv=XWAYLAND_NO_GLAMOR=1")
+        );
+        assert!(
+            !plan
+                .command
+                .args
+                .iter()
+                .any(|argument| argument == "--setenv=XWAYLAND_NO_GLAMOR=1")
+        );
         assert!(SANDBOX_WINE_LAUNCH_SCRIPT.contains("${CAPSULE_WAIT_FOR_WINESERVER:-0}"));
 
         record.wine_virtual_desktop = Some(crate::model::WineVirtualDesktop {
