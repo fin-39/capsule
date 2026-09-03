@@ -94,19 +94,10 @@ fn main() -> adw::glib::ExitCode {
         .first()
         .is_some_and(|argument| argument == "--install-audio-integration")
     {
-        return match backend::audio::install_user_policy() {
-            Ok(paths) => {
-                println!(
-                    "Installed Capsule audio integration ({} policy files) and restarted the user audio services",
-                    paths.len()
-                );
-                adw::glib::ExitCode::SUCCESS
-            }
-            Err(error) => {
-                eprintln!("Capsule audio integration failed: {error}");
-                adw::glib::ExitCode::FAILURE
-            }
-        };
+        println!(
+            "Capsule audio integration is no longer installed; playback-only audio is launch-scoped and no system changes were made"
+        );
+        return adw::glib::ExitCode::SUCCESS;
     }
     if arguments
         .first()

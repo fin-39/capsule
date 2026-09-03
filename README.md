@@ -139,7 +139,7 @@ Source-tree runtime requirements:
 - a Vulkan-capable graphics driver for the default DXVK Wine backend
 - the full `/usr/lib/7zip/7z` engine and `7z.so` plugin for archive imports
 - ImageMagick (`/usr/bin/magick`) for optional executable-icon thumbnails
-- PipeWire-Pulse and WirePlumber 0.5 for the playback-only audio permission
+- a running PipeWire user graph and `pipewire-pulse` for playback-only audio
 - `curl` for downloading Valve's official Windows Steam installer on demand
 
 Optional permissions can require additional host components. Capsule should detect these before launching and explain exactly what is missing. In particular, a missing `fuse2fs` is a hard error: the MVP does not kernel-mount the untrusted image and does not extract it into a persistent host directory as a fallback.
@@ -219,24 +219,13 @@ installation should install that directory unchanged at
 `/usr/share/capsule/dxvk/windows-compat`, including both architecture
 directories, `NOTICE.md` and `LICENSE`.
 
-The AppImage can install its playback-only audio policy once for the current
-user and reload the user audio services itself:
-
-```console
-./Capsule-*-x86_64.AppImage --install-audio-integration
-```
-
-It writes only Capsule's three named policy fragments, refuses to overwrite a
-modified fragment, and does not require administrator privileges. Contributors
-running from a source checkout can install the same embedded policy with
-`cargo run -- --install-audio-integration`, or install the files manually:
-
-```console
-install -Dm644 assets/pipewire/60-capsule-playback.conf ~/.config/pipewire/pipewire-pulse.conf.d/60-capsule-playback.conf
-install -Dm644 assets/pipewire/60-capsule-playback-sink.conf ~/.config/pipewire/pipewire.conf.d/60-capsule-playback-sink.conf
-install -Dm644 assets/wireplumber/60-capsule-playback.conf ~/.config/wireplumber/wireplumber.conf.d/60-capsule-playback.conf
-systemctl --user restart pipewire.service pipewire-pulse.service wireplumber.service
-```
+Playback-only audio works directly from the AppImage without installing
+packages, writing user configuration, or restarting audio services. Capsule
+starts one private PulseAudio-protocol frontend for the launch, connects it
+directly to the user's existing PipeWire graph, and removes its runtime socket
+when the launch ends. The frontend rejects recording streams and host volume
+changes; microphone access remains available only when explicitly enabled for
+the capsule.
 
 The project targets compositor-neutral Wayland APIs and does not depend on a
 Niri configuration. KDE Plasma Wayland uses its normal KWin placement and
@@ -288,7 +277,7 @@ Direct access to the host home directory, host X11, session/system D-Bus, `/dev/
 - A shared kernel means a kernel vulnerability can cross the container boundary.
 - Direct GPU access exposes a large kernel-driver ioctl surface.
 - Gamescope, Xwayland, Capsule's private-display helpers, Wine, `fuse2fs` and network/audio helpers become part of the trusted computing base to the extent that they bridge the capsule to the host.
-- Audio starts disabled. Playback-only uses Capsule's restricted PipeWire-Pulse socket; enabling Microphone uses Sandwine's broader native Pulse socket and therefore grants playback and recording. Restricted game streams stay at unity gain instead of inheriting or repeatedly returning to a zero host-side volume; the game mixer still applies its own volume, while desktop-side control is available on the Capsule Playback loopback stream and selected output device.
+- Audio starts disabled. Playback-only uses a launch-scoped Pulse frontend connected directly to the host PipeWire graph; it rejects recording streams and attempts to change host endpoint volumes. Enabling Microphone uses Sandwine's broader native Pulse socket and therefore grants playback and recording. The game mixer still applies its own stream volume, while the desktop mixer retains control of the resulting playback stream and selected output device.
 - Clipboard sharing supports UTF-8 text up to 1 MiB. Files, images, rich clipboard formats and primary-selection import are not bridged.
 - Portable folder import uses fd-relative `openat2` traversal and rejects source mutation, symlinks, hardlinks, mount crossings and special files. Ordinary ZIP import uses a bounded Rust parser with strict Windows-path and collision checks.
 - Archive input selected in the UI is parsed by the fixed full `/usr/lib/7zip/7z` executable inside a narrow Bubblewrap worker. It receives the already-open archive parts read-only, a minimal runtime, no network, and the import destination only while extracting. Compressed TAR input is streamed between two such workers instead of materializing the inner TAR on the host. The import coordinator still runs in Capsule's trusted process; do not use Capsule as a malware-analysis tool.
@@ -318,7 +307,7 @@ Direct access to the host home directory, host X11, session/system D-Bus, `/dev/
 - [ ] Add a clear pre-launch effective-permission summary and an in-app Stop action.
 - [ ] Add functional doctor probes for versions, user namespaces, FUSE, Wayland and the user systemd manager.
 - [x] Isolate PE icon parsing and conversion from the main UI process.
-- [x] Add a PipeWire/WirePlumber playback-only audio broker with a private sink monitor and no host capture sources.
+- [x] Add a launch-scoped PipeWire-Pulse frontend that permits playback while rejecting recording streams.
 - [x] Add rootless Internet-only networking with private/LAN destination filtering and no inbound forwarding.
 - [ ] Add a selected-controller broker instead of exposing broad host devices.
 - [ ] Add Landlock defense in depth and tested Wine-aware seccomp profiles.

@@ -32,9 +32,7 @@ export CAPSULE_WINESERVER="$runtime_bin/wineserver"
 export CAPSULE_WINEBOOT="$runtime_bin/wineboot"
 export CAPSULE_WINEPATH="$runtime_bin/winepath"
 export CAPSULE_WINE_INF="$runtime_share/wine/wine.inf"
-export CAPSULE_PIPEWIRE="$runtime_bin/pipewire"
 export CAPSULE_PIPEWIRE_PULSE="$runtime_bin/pipewire-pulse"
-export CAPSULE_WIREPLUMBER="$runtime_bin/wireplumber"
 export CAPSULE_FUSE2FS="$runtime_bin/fuse2fs"
 export CAPSULE_MKFS_EXT4="$runtime_bin/mkfs.ext4"
 export CAPSULE_SYSTEMD_RUN="$runtime_bin/systemd-run"
@@ -60,10 +58,8 @@ if [ "${1:-}" = "--doctor" ]; then
         echo "Capsule runtime doctor: bundled gamescopereaper cannot start" >&2
         exit 1
     fi
-    if ! "$runtime_bin/pipewire" --version >/dev/null ||
-       ! "$runtime_bin/pipewire-pulse" --version >/dev/null ||
-       ! "$runtime_bin/wireplumber" --version >/dev/null; then
-        echo "Capsule runtime doctor: bundled playback audio broker cannot start" >&2
+    if ! "$runtime_bin/pipewire-pulse" --version >/dev/null; then
+        echo "Capsule runtime doctor: bundled playback audio frontend cannot start" >&2
         exit 1
     fi
     if ! "$runtime_bin/systemd-run" --version >/dev/null; then

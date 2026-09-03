@@ -91,8 +91,6 @@ ln -s io.github.fin_39.Capsule.svg "$appdir/.DirIcon"
 
 cp -a assets/fonts "$appdir/usr/share/capsule/fonts"
 cp -a assets/dxvk "$appdir/usr/share/capsule/dxvk"
-cp -a assets/pipewire "$appdir/usr/share/capsule/pipewire"
-cp -a assets/wireplumber "$appdir/usr/share/capsule/wireplumber"
 
 copy_tool() {
     local name=$1
@@ -107,23 +105,21 @@ copy_tool() {
 
 for tool in \
     wine wineserver wineboot winepath \
-    pipewire pipewire-pulse wireplumber \
+    pipewire-pulse \
     gamescope gamescopereaper Xwayland bwrap fuse2fs mkfs.ext4 \
     slirp4netns nft wl-paste curl magick timeout prlimit systemd-run systemctl script; do
     copy_tool "$tool"
 done
 
-# Playback-only audio uses an ephemeral private PipeWire core and Pulse
-# frontend. Bundle only the modules and SPA plugins used by that broker; it
-# tunnels output to the desktop's existing Pulse-compatible socket and never
-# exposes host capture devices.
+# Playback-only audio uses one launch-scoped Pulse frontend attached directly
+# to the desktop's existing PipeWire graph. Bundle the complete frontend and
+# only the modules it loads. Recording is rejected by the protocol frontend;
+# no private core, tunnel, session manager, or host configuration is involved.
 mkdir -p -- \
     "$appdir/usr/lib/pipewire-0.3" \
     "$appdir/usr/lib/spa-0.2/audioconvert" \
     "$appdir/usr/lib/spa-0.2/support"
-for module in \
-    rt protocol-native client-node client-device access spa-node-factory \
-    adapter link-factory metadata pulse-tunnel protocol-pulse; do
+for module in protocol-native client-node adapter metadata protocol-pulse; do
     source=/usr/lib/pipewire-0.3/libpipewire-module-$module.so
     if [[ ! -f $source ]]; then
         echo "Required PipeWire broker module is missing: $source" >&2
@@ -134,12 +130,6 @@ done
 cp -a -- /usr/lib/spa-0.2/audioconvert/libspa-audioconvert.so \
     "$appdir/usr/lib/spa-0.2/audioconvert/"
 cp -a -- /usr/lib/spa-0.2/support/. "$appdir/usr/lib/spa-0.2/support/"
-if [[ ! -d /usr/lib/wireplumber-0.5 || ! -f /usr/share/wireplumber/wireplumber.conf ]]; then
-    echo "The WirePlumber policy runtime is incomplete" >&2
-    exit 2
-fi
-cp -a -- /usr/lib/wireplumber-0.5 "$appdir/usr/lib/wireplumber-0.5"
-cp -a -- /usr/share/wireplumber "$appdir/usr/share/wireplumber"
 
 # Gamescope loads additional bundled libraries after startup. Running it via
 # the build host's matching, isolated glibc prevents those modules from being
@@ -351,7 +341,7 @@ if command -v pacman >/dev/null 2>&1; then
     : > "$package_inventory"
     for package in \
         wine gamescope xorg-xwayland bubblewrap e2fsprogs fuse2fs fuse3 glibc \
-        pipewire pipewire-pulse wireplumber libpulse \
+        pipewire pipewire-pulse libpulse \
         slirp4netns nftables gtk4 glib2 libadwaita 7zip wl-clipboard \
         curl imagemagick gstreamer gst-plugins-base-libs gst-plugins-base \
         gst-plugins-good gst-plugins-bad gst-plugins-ugly gst-libav; do
