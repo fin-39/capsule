@@ -1546,7 +1546,7 @@ impl UiState {
         steam.set_visible(record.runner == RunnerKind::Wine);
         let steam_start_row = adw::SwitchRow::builder()
             .title("Start Steam with this game")
-            .subtitle("Steam starts silently in the same contained Wine session before the game.")
+            .subtitle("Steam shows updates or login in the contained Wine session, then the game starts automatically.")
             .active(record.wine_steam)
             .build();
         steam.add(&steam_start_row);

@@ -1058,7 +1058,7 @@ if [ "${CAPSULE_START_STEAM:-0}" = 1 ]; then
     # Keep Steam in the same prefix, network namespace, and private display as
     # the game. Its login state never comes from the host Steam installation.
     printf 'Capsule: waiting for Steam to finish updates and sign in; this may take up to 15 minutes\n' >&2
-    "$wine" "$steam_executable" -silent &
+    "$wine" "$steam_executable" &
     steam_launcher=$!
     # Steam replaces its bootstrap process while updating, and its web helper
     # starts before account authentication and library initialization finish.
@@ -2031,6 +2031,7 @@ mod tests {
         assert!(SANDBOX_WINE_LAUNCH_SCRIPT.contains("steam_login_offset=$(/usr/bin/stat -c %s"));
         assert!(SANDBOX_WINE_LAUNCH_SCRIPT.contains("steam_wait\" -lt 900"));
         assert!(SANDBOX_WINE_LAUNCH_SCRIPT.contains("may take up to 15 minutes"));
+        assert!(!SANDBOX_WINE_LAUNCH_SCRIPT.contains("$steam_executable\" -silent"));
         assert!(!SANDBOX_WINE_LAUNCH_SCRIPT.contains("steamwebhelper.exe"));
 
         let utility_plan =
