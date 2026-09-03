@@ -39,6 +39,36 @@ const POLICY_FILES: [(&str, &str); 3] = [
 const BROKER_START_TIMEOUT: Duration = Duration::from_secs(5);
 const BROKER_PROCESS_CHECK_DELAY: Duration = Duration::from_millis(150);
 
+/// Select the host's installed playback-only endpoint when available. Unlike
+/// the portable fallback broker, this endpoint links its virtual sink into the
+/// host PipeWire graph directly and therefore has no Pulse tunnel that can
+/// underrun between two independently scheduled audio servers.
+pub enum PlaybackEndpoint {
+    Direct(PathBuf),
+    Broker(PlaybackBroker),
+}
+
+impl PlaybackEndpoint {
+    pub fn start() -> Result<Self, PlaybackBrokerError> {
+        if let Some(socket) = direct_playback_socket()? {
+            eprintln!(
+                "Capsule: using installed playback-only audio endpoint at {}",
+                socket.display()
+            );
+            return Ok(Self::Direct(socket));
+        }
+        eprintln!("Capsule: installed audio endpoint unavailable; using portable audio broker");
+        PlaybackBroker::start().map(Self::Broker)
+    }
+
+    pub fn socket(&self) -> &Path {
+        match self {
+            Self::Direct(socket) => socket,
+            Self::Broker(broker) => broker.socket(),
+        }
+    }
+}
+
 /// A per-launch Pulse-compatible server with one playback sink and no host
 /// capture devices. Audio sent to that sink is tunneled to the user's existing
 /// PulseAudio-compatible server. Keeping the broker processes owned by
@@ -229,6 +259,22 @@ fn host_runtime_dir() -> Result<PathBuf, PlaybackBrokerError> {
         Ok(runtime)
     } else {
         Err(PlaybackBrokerError::UnsafeRuntimeDirectory(runtime))
+    }
+}
+
+fn direct_playback_socket() -> Result<Option<PathBuf>, PlaybackBrokerError> {
+    let socket = host_runtime_dir()?.join("pulse/capsule-playback-native");
+    match fs::symlink_metadata(&socket) {
+        Ok(metadata) if metadata.file_type().is_socket() => {
+            if UnixStream::connect(&socket).is_ok() {
+                Ok(Some(socket))
+            } else {
+                Ok(None)
+            }
+        }
+        Ok(_) => Err(PlaybackBrokerError::NotSocket(socket)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(source) => Err(broker_io_error(&socket, source)),
     }
 }
 

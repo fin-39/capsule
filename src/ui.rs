@@ -1172,7 +1172,11 @@ impl UiState {
         match supervisor.spawn() {
             Ok(mut child) => {
                 self.toast(&format!("Starting {}", record.name));
-                focus_new_niri_gamescope_window(niri_windows_before, record.name.clone());
+                focus_new_niri_gamescope_window(
+                    niri_windows_before,
+                    gamescope_expected_titles(&record),
+                    record.wine_steam,
+                );
                 let mut steam_update = record
                     .wine_steam
                     .then(|| SteamUpdateMonitor::open(&log_path))
@@ -1302,7 +1306,11 @@ impl UiState {
         match supervisor.spawn() {
             Ok(mut child) => {
                 self.toast(starting_message);
-                focus_new_niri_gamescope_window(niri_windows_before, record.name.clone());
+                focus_new_niri_gamescope_window(
+                    niri_windows_before,
+                    vec![record.name.clone()],
+                    false,
+                );
                 let state = Rc::clone(self);
                 let install = install_button.clone();
                 let open = open_button.clone();
@@ -2033,11 +2041,10 @@ impl UiState {
     }
 }
 
-/// Gamescope currently creates its Wayland toplevel without the standard
-/// xdg-activation protocol. Niri therefore treats a Gamescope process started
-/// through the detached systemd supervisor as an unrelated background client
-/// and leaves its new column unfocused. Keep the workaround narrowly scoped to
-/// Niri and to a newly-created Gamescope window from this Start action. KWin
+/// Gamescope's detached systemd supervisor has no compositor activation token.
+/// Niri therefore treats its new nested toplevel as an unrelated background
+/// client and leaves the column unfocused. Keep the workaround narrowly scoped
+/// to Niri and to a newly-created Gamescope window from this Start action. KWin
 /// and other compositors keep their normal toplevel placement/focus policy and
 /// do not require compositor-specific IPC here.
 fn niri_gamescope_window_ids() -> Option<HashSet<u64>> {
@@ -2286,13 +2293,21 @@ fn usable_supervisor_executable(path: &Path) -> bool {
             .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
 }
 
-fn focus_new_niri_gamescope_window(previous: Option<HashSet<u64>>, expected_title: String) {
+fn focus_new_niri_gamescope_window(
+    previous: Option<HashSet<u64>>,
+    expected_titles: Vec<String>,
+    waits_for_steam: bool,
+) {
     let Some(previous) = previous else {
         return;
     };
     // Wine and Ren'Py can spend tens of seconds preparing their first frame;
     // Gamescope does not necessarily map its host toplevel before then.
     let mut attempts = 0_u16;
+    // The in-capsule Steam client may spend as long as 15 minutes updating
+    // before the first game surface exists. Keep the focus watcher alive for
+    // that entire interval, plus one minute for the game itself to initialize.
+    let max_attempts = if waits_for_steam { 3_840 } else { 240 };
     gtk::glib::timeout_add_local(Duration::from_millis(250), move || {
         attempts += 1;
         let Some(current) = niri_gamescope_windows() else {
@@ -2305,10 +2320,12 @@ fn focus_new_niri_gamescope_window(previous: Option<HashSet<u64>>, expected_titl
             .collect::<Vec<_>>();
         new_windows.sort_unstable();
 
-        let id = if new_windows.len() == 1 {
+        let id = if waits_for_steam {
+            niri_gamescope_window_with_title(&new_windows, &expected_titles)
+        } else if new_windows.len() == 1 {
             new_windows.first().copied()
         } else {
-            niri_gamescope_window_with_title(&new_windows, &expected_title)
+            niri_gamescope_window_with_title(&new_windows, &expected_titles)
         };
         if let Some(id) = id {
             let _ = Command::new("/usr/bin/niri")
@@ -2320,7 +2337,7 @@ fn focus_new_niri_gamescope_window(previous: Option<HashSet<u64>>, expected_titl
             return gtk::glib::ControlFlow::Break;
         }
 
-        if attempts >= 240 {
+        if attempts >= max_attempts {
             gtk::glib::ControlFlow::Break
         } else {
             gtk::glib::ControlFlow::Continue
@@ -2348,7 +2365,17 @@ fn niri_gamescope_windows() -> Option<HashSet<u64>> {
     niri_gamescope_window_ids()
 }
 
-fn niri_gamescope_window_with_title(candidates: &[u64], expected_title: &str) -> Option<u64> {
+fn gamescope_expected_titles(record: &CapsuleRecord) -> Vec<String> {
+    let mut titles = vec![record.name.clone()];
+    if let Some(stem) = record.entrypoint.file_stem().and_then(|stem| stem.to_str()) {
+        if !stem.is_empty() && !titles.iter().any(|title| title == stem) {
+            titles.push(stem.to_owned());
+        }
+    }
+    titles
+}
+
+fn niri_gamescope_window_with_title(candidates: &[u64], expected_titles: &[String]) -> Option<u64> {
     let output = Command::new("/usr/bin/niri")
         .args(["msg", "--json", "windows"])
         .output()
@@ -2360,7 +2387,8 @@ fn niri_gamescope_window_with_title(candidates: &[u64], expected_title: &str) ->
     windows.as_array()?.iter().find_map(|window| {
         let id = window.get("id")?.as_u64()?;
         let title = window.get("title")?.as_str()?;
-        (candidates.contains(&id) && title == expected_title).then_some(id)
+        (candidates.contains(&id) && expected_titles.iter().any(|expected| title == expected))
+            .then_some(id)
     })
 }
 
@@ -3015,6 +3043,26 @@ mod tests {
             None
         );
         assert_eq!(format_kib(158_791), "155.1 MiB");
+    }
+
+    #[test]
+    fn steam_game_focus_accepts_the_entrypoint_title() {
+        let record = CapsuleRecord::new(
+            "We Were Here Too v02022018 by Pioneer",
+            StorageKind::DirectoryDev {
+                path: PathBuf::from("/tmp/capsule-focus-test"),
+            },
+            "drive_c/Games/We Were Here Too/We Were Here Too.exe",
+            RunnerKind::Wine,
+        );
+
+        assert_eq!(
+            gamescope_expected_titles(&record),
+            vec![
+                "We Were Here Too v02022018 by Pioneer".to_owned(),
+                "We Were Here Too".to_owned(),
+            ]
+        );
     }
 
     #[cfg(unix)]

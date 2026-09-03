@@ -425,11 +425,17 @@ fn build_launch_plan_with_runtime(
         // locale names before the sandbox starts.
         .arg("--expand-environment=no")
         .arg(format!("--unit=capsule-{}", record.id.simple()))
-        // Gamescope replaces this with its per-run Xwayland display for the
-        // child. If that handoff ever fails, the nonexistent sentinel makes
-        // Sandwine fail instead of silently selecting the desktop's :0.
-        .arg("--setenv=DISPLAY=:99999")
-        .arg("--setenv=XAUTHORITY=")
+        // Force Gamescope's trusted SDL frontend through the compositor's
+        // Xwayland server. Its native Wayland frontend can attach a buffer
+        // before Niri configures the xdg_surface, while SDL's Wayland frontend
+        // can leave the nested output entirely unmapped. Gamescope replaces
+        // DISPLAY with its own private Xwayland display before starting the
+        // child, so Sandwine never receives this host-facing value.
+        .arg("--setenv=SDL_VIDEODRIVER=x11")
+        // AppImage execution otherwise makes SDL derive WM_CLASS from its
+        // dynamic loader (`ld-linux-x86-64.so.2`). Give Niri and Capsule's
+        // focus watcher a stable identity for the trusted outer window.
+        .arg("--setenv=SDL_VIDEO_X11_WMCLASS=gamescope")
         .arg("--setenv=DBUS_SESSION_BUS_ADDRESS=")
         .arg("--setenv=SSH_AUTH_SOCK=")
         .arg("--setenv=GPG_AGENT_INFO=")
@@ -455,6 +461,8 @@ fn build_launch_plan_with_runtime(
     // trusted outer Gamescope process. Driver binaries themselves stay on the
     // host because they must match the running kernel and hardware.
     for variable in [
+        "DISPLAY",
+        "XAUTHORITY",
         "XDG_RUNTIME_DIR",
         "WAYLAND_DISPLAY",
         "XDG_SESSION_TYPE",
@@ -482,8 +490,7 @@ fn build_launch_plan_with_runtime(
 
     if let Some(guard) = clipboard_guard {
         // Gamescope's host-facing Wayland client otherwise advertises private
-        // X11 text selections to the host compositor. This also covers the
-        // SDL nested backend when SDL selects Wayland. Hide the two host
+        // X11 text selections to the host compositor. Hide the two host
         // selection protocols when Clipboard is off. The child wrapper below
         // removes the interposer before Sandwine starts.
         command = command
@@ -497,15 +504,11 @@ fn build_launch_plan_with_runtime(
         // This avoids a known NVIDIA NVVM compute-pipeline failure on the
         // current host while preserving the private nested compositor.
         .arg("--disable-color-management")
-        // Gamescope's native Wayland backend can disconnect with an
-        // xdg_surface protocol error while Steam rapidly replaces and resizes
-        // its updater windows. The supported SDL nested backend presents the
-        // same private Xwayland display without using that fragile path.
+        // SDL is pinned to the host Xwayland display above; this avoids both
+        // native Wayland's xdg_surface disconnect and SDL-Wayland's unmapped
+        // nested output on Niri.
         .arg("--backend")
         .arg("sdl")
-        // Keep every frame on the compositor path. Direct scan-out can expose
-        // visible top-to-bottom tearing on some nested NVIDIA/Xwayland stacks.
-        .arg("--force-composition")
         .arg("--xwayland-count")
         .arg("1")
         // Keep the complete Win32 top-level window inside the private screen.
@@ -1846,7 +1849,13 @@ mod tests {
             plan.command
                 .args
                 .iter()
-                .any(|argument| argument == "--setenv=DISPLAY=:99999")
+                .any(|argument| argument == "--setenv=SDL_VIDEODRIVER=x11")
+        );
+        assert!(
+            plan.command
+                .args
+                .iter()
+                .any(|argument| argument == "--setenv=SDL_VIDEO_X11_WMCLASS=gamescope")
         );
         assert!(
             plan.command
@@ -1867,7 +1876,8 @@ mod tests {
                 .any(|arguments| arguments[0] == "--backend" && arguments[1] == "sdl")
         );
         assert!(
-            plan.command
+            !plan
+                .command
                 .args
                 .iter()
                 .any(|argument| argument == "--force-composition")

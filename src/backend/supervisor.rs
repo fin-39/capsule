@@ -68,10 +68,12 @@ fn run_with_mode(
     wine_utility: bool,
 ) -> Result<ExitStatus, SupervisorError> {
     let capabilities = detect_with_environment_override()?;
-    let playback_broker = matches!(record.permissions.audio, AudioPolicy::PlaybackOnly)
-        .then(audio::PlaybackBroker::start)
+    let playback_endpoint = matches!(record.permissions.audio, AudioPolicy::PlaybackOnly)
+        .then(audio::PlaybackEndpoint::start)
         .transpose()?;
-    let playback_socket = playback_broker.as_ref().map(audio::PlaybackBroker::socket);
+    let playback_socket = playback_endpoint
+        .as_ref()
+        .map(audio::PlaybackEndpoint::socket);
     match &record.storage {
         StorageKind::DirectoryDev { .. } => {
             let plan = if wine_utility {

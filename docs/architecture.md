@@ -259,11 +259,12 @@ private monitor, and pins both playback streams and Wine's capture probe to
 that pair. This matters because Wine may abandon audio initialization when a
 record stream is rejected outright. The monitor contains only audio sent to
 the private Capsule sink, not host microphone input or unrelated application
-audio. Per-application playback volume remains under the user's normal
-session-manager control. Restricted playback streams opt out of WirePlumber's
-per-application stream-property restore and start at unity gain, preventing a
-stale saved zero-volume entry from muting every Wine stream recreation; the
-game's own mixer still controls the audio sent through that stream.
+audio. Restricted playback streams opt out of WirePlumber's per-application
+stream-property restore and keep the host-side game stream at unity gain,
+preventing both stale saved values and repeated client-side zero-volume
+updates from muting playback. The game's own mixer still controls the samples
+sent through that stream. Desktop-side volume is controlled by the Capsule
+Playback loopback stream or the selected output device.
 Enabling Microphone instead uses Sandwine's ordinary Pulse socket and
 therefore explicitly grants both playback and recording.
 
