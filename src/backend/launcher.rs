@@ -1057,6 +1057,7 @@ if [ "${CAPSULE_START_STEAM:-0}" = 1 ]; then
     esac
     # Keep Steam in the same prefix, network namespace, and private display as
     # the game. Its login state never comes from the host Steam installation.
+    printf 'Capsule: waiting for Steam to finish updates and sign in; this may take up to 15 minutes\n' >&2
     "$wine" "$steam_executable" -silent &
     steam_launcher=$!
     # Steam replaces its bootstrap process while updating, and its web helper
@@ -1065,7 +1066,7 @@ if [ "${CAPSULE_START_STEAM:-0}" = 1 ]; then
     # call SteamAPI_Init only once cannot race the client during startup.
     steam_ready=0
     steam_wait=0
-    while [ "$steam_wait" -lt 60 ]; do
+    while [ "$steam_wait" -lt 900 ]; do
         if [ -f "$steam_login_log" ]; then
             steam_login_size=$(/usr/bin/stat -c %s -- "$steam_login_log" 2>/dev/null) || steam_login_size=0
             case "$steam_login_size" in
@@ -1094,7 +1095,7 @@ if [ "${CAPSULE_START_STEAM:-0}" = 1 ]; then
         steam_wait=$((steam_wait + 1))
     done
     if [ "$steam_ready" -ne 1 ]; then
-        printf 'Capsule: Steam did not finish signing in within 60 seconds; open Steam in this capsule, complete login or updates, and try again\n' >&2
+        printf 'Capsule: Steam did not finish updating and signing in within 15 minutes; open Steam in this capsule and review its login state\n' >&2
         "$wineserver" -k >/dev/null 2>&1 || :
         "$wineserver" -w >/dev/null 2>&1 || :
         exit 124
@@ -2028,6 +2029,8 @@ mod tests {
         assert!(SANDBOX_WINE_LAUNCH_SCRIPT.contains("steamui_login.txt"));
         assert!(SANDBOX_WINE_LAUNCH_SCRIPT.contains("SetLoginState: Success - OK"));
         assert!(SANDBOX_WINE_LAUNCH_SCRIPT.contains("steam_login_offset=$(/usr/bin/stat -c %s"));
+        assert!(SANDBOX_WINE_LAUNCH_SCRIPT.contains("steam_wait\" -lt 900"));
+        assert!(SANDBOX_WINE_LAUNCH_SCRIPT.contains("may take up to 15 minutes"));
         assert!(!SANDBOX_WINE_LAUNCH_SCRIPT.contains("steamwebhelper.exe"));
 
         let utility_plan =

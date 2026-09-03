@@ -452,7 +452,6 @@ context.spa-libs = {{
 }}
 
 context.modules = [
-    {{ name = libpipewire-module-rt args = {{ nice.level = 0 rt.prio = 0 rtportal.enabled = false rtkit.enabled = false }} flags = [ ifexists nofail ] }}
     {{ name = libpipewire-module-protocol-native }}
     {{ name = libpipewire-module-client-node }}
     {{ name = libpipewire-module-client-device }}
@@ -479,7 +478,6 @@ fn tunnel_configuration(core_name: &str, host_socket: &Path) -> String {
         r#"context.properties = {{ remote.name = {core_name} }}
 context.spa-libs = {{ audio.convert.* = audioconvert/libspa-audioconvert support.* = support/libspa-support }}
 context.modules = [
-    {{ name = libpipewire-module-rt args = {{ nice.level = 0 rt.prio = 0 rtportal.enabled = false rtkit.enabled = false }} flags = [ ifexists nofail ] }}
     {{ name = libpipewire-module-protocol-native }}
     {{ name = libpipewire-module-client-node }}
     {{ name = libpipewire-module-adapter }}
@@ -497,7 +495,6 @@ fn pulse_configuration(core_name: &str, socket: &Path, identity: &str) -> String
         r#"context.properties = {{ remote.name = {core_name} link.max-buffers = 64 }}
 context.spa-libs = {{ audio.convert.* = audioconvert/libspa-audioconvert support.* = support/libspa-support }}
 context.modules = [
-    {{ name = libpipewire-module-rt args = {{ nice.level = 0 rt.prio = 0 rtportal.enabled = false rtkit.enabled = false }} flags = [ ifexists nofail ] }}
     {{ name = libpipewire-module-protocol-native }}
     {{ name = libpipewire-module-client-node }}
     {{ name = libpipewire-module-adapter }}
@@ -734,6 +731,8 @@ mod tests {
         assert!(pulse.contains("target.object = capsule_playback"));
         assert!(!pulse.contains("Audio/Source"));
         assert!(!pulse.contains("host microphone"));
+        assert!(!pulse.contains("libpipewire-module-rt"));
+        assert!(!tunnel.contains("libpipewire-module-rt"));
     }
 
     #[test]
