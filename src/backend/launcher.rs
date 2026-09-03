@@ -481,10 +481,11 @@ fn build_launch_plan_with_runtime(
     let (nested_width, nested_height) = gamescope_nested_size(record);
 
     if let Some(guard) = clipboard_guard {
-        // Gamescope's Wayland backend otherwise advertises private X11 text
-        // selections to the host compositor. Hide the two host selection
-        // protocols when Clipboard is off. The child wrapper below removes
-        // the interposer before Sandwine starts.
+        // Gamescope's host-facing Wayland client otherwise advertises private
+        // X11 text selections to the host compositor. This also covers the
+        // SDL nested backend when SDL selects Wayland. Hide the two host
+        // selection protocols when Clipboard is off. The child wrapper below
+        // removes the interposer before Sandwine starts.
         command = command
             .arg("/usr/bin/env")
             .arg(format!("LD_PRELOAD={}", guard.display()))
@@ -496,8 +497,15 @@ fn build_launch_plan_with_runtime(
         // This avoids a known NVIDIA NVVM compute-pipeline failure on the
         // current host while preserving the private nested compositor.
         .arg("--disable-color-management")
+        // Gamescope's native Wayland backend can disconnect with an
+        // xdg_surface protocol error while Steam rapidly replaces and resizes
+        // its updater windows. The supported SDL nested backend presents the
+        // same private Xwayland display without using that fragile path.
         .arg("--backend")
-        .arg("wayland")
+        .arg("sdl")
+        // Keep every frame on the compositor path. Direct scan-out can expose
+        // visible top-to-bottom tearing on some nested NVIDIA/Xwayland stacks.
+        .arg("--force-composition")
         .arg("--xwayland-count")
         .arg("1")
         // Keep the complete Win32 top-level window inside the private screen.
@@ -1058,7 +1066,7 @@ if [ "${CAPSULE_START_STEAM:-0}" = 1 ]; then
     # Keep Steam in the same prefix, network namespace, and private display as
     # the game. Its login state never comes from the host Steam installation.
     printf 'Capsule: waiting for Steam to finish updates and sign in; this may take up to 15 minutes\n' >&2
-    "$wine" "$steam_executable" &
+    "$wine" "$steam_executable" -silent &
     steam_launcher=$!
     # Steam replaces its bootstrap process while updating, and its web helper
     # starts before account authentication and library initialization finish.
@@ -1856,7 +1864,13 @@ mod tests {
             plan.command
                 .args
                 .windows(2)
-                .any(|arguments| arguments[0] == "--backend" && arguments[1] == "wayland")
+                .any(|arguments| arguments[0] == "--backend" && arguments[1] == "sdl")
+        );
+        assert!(
+            plan.command
+                .args
+                .iter()
+                .any(|argument| argument == "--force-composition")
         );
         assert!(plan.command.args.windows(4).any(|arguments| {
             arguments[0] == "--nested-width"
@@ -2031,7 +2045,7 @@ mod tests {
         assert!(SANDBOX_WINE_LAUNCH_SCRIPT.contains("steam_login_offset=$(/usr/bin/stat -c %s"));
         assert!(SANDBOX_WINE_LAUNCH_SCRIPT.contains("steam_wait\" -lt 900"));
         assert!(SANDBOX_WINE_LAUNCH_SCRIPT.contains("may take up to 15 minutes"));
-        assert!(!SANDBOX_WINE_LAUNCH_SCRIPT.contains("$steam_executable\" -silent"));
+        assert!(SANDBOX_WINE_LAUNCH_SCRIPT.contains("$steam_executable\" -silent"));
         assert!(!SANDBOX_WINE_LAUNCH_SCRIPT.contains("steamwebhelper.exe"));
 
         let utility_plan =

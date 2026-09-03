@@ -171,6 +171,124 @@ struct UiState {
     launching: RefCell<HashSet<Uuid>>,
 }
 
+struct SteamUpdateMonitor {
+    log: File,
+    pending: String,
+    toast: Option<adw::Toast>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum SteamUpdateEvent {
+    Download { downloaded_kib: u64, total_kib: u64 },
+    Installing,
+    Complete,
+}
+
+impl SteamUpdateMonitor {
+    fn open(path: &Path) -> io::Result<Self> {
+        Ok(Self {
+            log: open_regular_launch_log(path, OFlags::RDONLY)?,
+            pending: String::new(),
+            toast: None,
+        })
+    }
+
+    fn poll(&mut self, overlay: &adw::ToastOverlay) {
+        let mut appended = Vec::new();
+        if self.log.read_to_end(&mut appended).is_err() || appended.is_empty() {
+            return;
+        }
+        self.pending.push_str(&String::from_utf8_lossy(&appended));
+        let Some(last_newline) = self.pending.rfind('\n') else {
+            return;
+        };
+        let remainder = self.pending.split_off(last_newline + 1);
+        let complete = std::mem::replace(&mut self.pending, remainder);
+        for line in complete.lines() {
+            if let Some(event) = parse_steam_update_event(line) {
+                self.show(event, overlay);
+            }
+        }
+    }
+
+    fn finish(&mut self) {
+        if let Some(toast) = self.toast.take() {
+            toast.dismiss();
+        }
+    }
+
+    fn show(&mut self, event: SteamUpdateEvent, overlay: &adw::ToastOverlay) {
+        match event {
+            SteamUpdateEvent::Download {
+                downloaded_kib,
+                total_kib,
+            } => {
+                let remaining_kib = total_kib.saturating_sub(downloaded_kib);
+                let percentage = if total_kib == 0 {
+                    0
+                } else {
+                    downloaded_kib.saturating_mul(100) / total_kib
+                }
+                .min(100);
+                let title = format!(
+                    "Updating Steam · {} left · {percentage}%",
+                    format_kib(remaining_kib)
+                );
+                self.update_toast(overlay, &title);
+            }
+            SteamUpdateEvent::Installing => {
+                self.update_toast(overlay, "Installing Steam update…");
+            }
+            SteamUpdateEvent::Complete => {
+                self.finish();
+                let toast = adw::Toast::new("Steam updated · signing in before the game starts…");
+                toast.set_timeout(5);
+                overlay.add_toast(toast);
+            }
+        }
+    }
+
+    fn update_toast(&mut self, overlay: &adw::ToastOverlay, title: &str) {
+        if let Some(toast) = self.toast.as_ref() {
+            toast.set_title(title);
+            return;
+        }
+        let toast = adw::Toast::new(title);
+        toast.set_priority(adw::ToastPriority::High);
+        toast.set_timeout(0);
+        overlay.add_toast(toast.clone());
+        self.toast = Some(toast);
+    }
+}
+
+fn parse_steam_update_event(line: &str) -> Option<SteamUpdateEvent> {
+    if line.contains("Update complete, launching Steam...") {
+        return Some(SteamUpdateEvent::Complete);
+    }
+    if line.contains("Installing update...") || line.contains("Extracting package...") {
+        return Some(SteamUpdateEvent::Installing);
+    }
+    let (_, progress) = line.split_once("Downloading update (")?;
+    let (progress, _) = progress.split_once(" KB)")?;
+    let (downloaded, total) = progress.split_once(" of ")?;
+    Some(SteamUpdateEvent::Download {
+        downloaded_kib: parse_steam_kib(downloaded)?,
+        total_kib: parse_steam_kib(total)?,
+    })
+}
+
+fn parse_steam_kib(value: &str) -> Option<u64> {
+    value.replace(',', "").parse().ok()
+}
+
+fn format_kib(kib: u64) -> String {
+    if kib >= 1024 {
+        format!("{:.1} MiB", kib as f64 / 1024.0)
+    } else {
+        format!("{kib} KiB")
+    }
+}
+
 #[derive(Clone)]
 struct PortableSelection {
     source: backend::portable::PortableSource,
@@ -1055,6 +1173,12 @@ impl UiState {
             Ok(mut child) => {
                 self.toast(&format!("Starting {}", record.name));
                 focus_new_niri_gamescope_window(niri_windows_before, record.name.clone());
+                let mut steam_update = record
+                    .wine_steam
+                    .then(|| SteamUpdateMonitor::open(&log_path))
+                    .transpose()
+                    .ok()
+                    .flatten();
                 let state = Rc::clone(self);
                 gtk::glib::timeout_add_local_once(Duration::from_secs(1), move || {
                     state.refresh();
@@ -1063,8 +1187,14 @@ impl UiState {
                 let name = record.name;
                 let log_path = log_path.clone();
                 gtk::glib::timeout_add_local(Duration::from_millis(500), move || {
+                    if let Some(monitor) = steam_update.as_mut() {
+                        monitor.poll(&state.overlay);
+                    }
                     match child.try_wait() {
                         Ok(Some(status)) => {
+                            if let Some(monitor) = steam_update.as_mut() {
+                                monitor.finish();
+                            }
                             append_launch_log(
                                 &log_path,
                                 &if status.success() {
@@ -1085,6 +1215,9 @@ impl UiState {
                         }
                         Ok(None) => gtk::glib::ControlFlow::Continue,
                         Err(error) => {
+                            if let Some(monitor) = steam_update.as_mut() {
+                                monitor.finish();
+                            }
                             append_launch_log(
                                 &log_path,
                                 &format!("Capsule UI: could not monitor supervisor: {error}"),
@@ -1546,7 +1679,7 @@ impl UiState {
         steam.set_visible(record.runner == RunnerKind::Wine);
         let steam_start_row = adw::SwitchRow::builder()
             .title("Start Steam with this game")
-            .subtitle("Steam shows updates or login in the contained Wine session, then the game starts automatically.")
+            .subtitle("Steam starts hidden. Capsule shows client-update progress, then starts the game automatically.")
             .active(record.wine_steam)
             .build();
         steam.add(&steam_start_row);
@@ -2856,6 +2989,32 @@ mod tests {
         assert!(log_line_is_error("0030:err:winediag:nodrv_CreateWindow"));
         assert!(log_line_is_error("Capsule launch failed: helper missing"));
         assert!(!log_line_is_error("info: Vulkan device initialized"));
+    }
+
+    #[test]
+    fn steam_update_progress_uses_the_bootstrap_log_totals() {
+        assert_eq!(
+            parse_steam_update_event(
+                "[2026-09-03 20:28:11] Downloading update (53,523 of 212,314 KB)..."
+            ),
+            Some(SteamUpdateEvent::Download {
+                downloaded_kib: 53_523,
+                total_kib: 212_314,
+            })
+        );
+        assert_eq!(
+            parse_steam_update_event("[2026-09-03 20:28:21] Extracting package..."),
+            Some(SteamUpdateEvent::Installing)
+        );
+        assert_eq!(
+            parse_steam_update_event("[2026-09-03 20:28:33] Update complete, launching Steam..."),
+            Some(SteamUpdateEvent::Complete)
+        );
+        assert_eq!(
+            parse_steam_update_event("[2026-09-03 20:28:09] Manifest download: finished"),
+            None
+        );
+        assert_eq!(format_kib(158_791), "155.1 MiB");
     }
 
     #[cfg(unix)]
